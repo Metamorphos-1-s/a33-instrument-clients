@@ -1,0 +1,16 @@
+{
+  "status": "PASS — read-only mailbox clean after STM32 fix",
+  "transport": "Modbus TCP",
+  "endpoint": "192.168.1.100:502",
+  "unitId": 1,
+  "firmwareCommit": "71a61249645bff6249286ac801d7f468786cfe85",
+  "identity": {"map": "0x0104", "firmware": "0x050A"},
+  "realtimeRegisters": [0,1,2,1,63,0,0,0,0,0,0,0,1,0,260,1290,0,0,0,3390,0,0,0,3390,0,0,0,0,65535,21775,65535,21772,0,787],
+  "mailboxRegisters_0x0040_to_0x0057": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  "mailboxResponseToken": 0,
+  "mailboxResultCode": 0,
+  "mailboxState": 0,
+  "mailboxLastCommandId": 0,
+  "writesSentByProbe": 0,
+  "invalidResult96": false
+}
