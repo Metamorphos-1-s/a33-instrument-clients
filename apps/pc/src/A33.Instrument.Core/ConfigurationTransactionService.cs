@@ -58,6 +58,8 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
         catch { State = wrote ? ConfigurationTransactionState.ResultUncertain : ConfigurationTransactionState.Error; Notify(); throw; }
         finally { gate.Release(); }
     }
+    public async Task BeginAsync(CancellationToken cancellationToken = default) { await gate.WaitAsync(cancellationToken); try { var r=await SubmitAsync(9,cancellationToken); if(r!=0) throw new InvalidOperationException($"Device rejected BEGIN with Result Code {r}."); } finally { gate.Release(); } }
+    public async Task ValidateAsync(CancellationToken cancellationToken = default) { await gate.WaitAsync(cancellationToken); try { var r=await SubmitAsync(10,cancellationToken); if(r!=0) throw new InvalidOperationException($"Device rejected VALIDATE with Result Code {r}."); } finally { gate.Release(); } }
 
     public async Task CancelAsync(CancellationToken cancellationToken = default)
     {

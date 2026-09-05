@@ -20,9 +20,10 @@ public sealed partial class MainViewModel
     private string brightnessText = "";
     public string BrightnessText { get => brightnessText; set { brightnessText = value; OnPropertyChanged(); } }
     public AsyncRelayCommand EditBrightnessCommand => new(() => { if (int.TryParse(BrightnessText, out var value)) Configuration.Edit("brightness", value); ConfigurationStateChanged(); Refresh(); return Task.CompletedTask; }, () => State == MonitoringConnectionState.Monitoring && !runtimeBusy && Configuration.Snapshot is not null);
+    public AsyncRelayCommand BeginConfigurationCommand => new(async () => { try { await Configuration.BeginAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }, () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
 
     private async Task RefreshConfigurationAsync() { try { var snapshot = await Configuration.RefreshAsync(); var field = snapshot.Fields.FirstOrDefault(f => f.Key == "brightness"); if (field is not null) BrightnessText = field.Edited[0].ToString(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
-    private Task ValidateConfigurationAsync() { if (ConfigurationDirty) { ConfigurationStateChanged(); } return Task.CompletedTask; }
+    private async Task ValidateConfigurationAsync() { try { await Configuration.ValidateAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
     private async Task ApplyConfigurationAsync(bool save)
     {
         var message = save ? "将写入设备 Flash。保存期间请勿断电，完成后将重新连接并回读。不会自动重复发送。" : "仅应用到当前运行状态，尚未持久化，设备重启后可能恢复原值。";
