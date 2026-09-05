@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "transport": "Modbus TCP",
+  "endpoint": "192.168.1.100:502",
+  "durationSeconds": 600,
+  "firmwareCommit": "71a61249645bff6249286ac801d7f468786cfe85",
+  "diagnostics": {
+    "TxRequests": 26931,
+    "RxResponses": 26930,
+    "Timeouts": 0,
+    "CrcErrors": 0,
+    "MbapErrors": 0,
+    "UnitErrors": 0,
+    "Exceptions": 0,
+    "BadFrames": 0,
+    "TransportErrors": 0,
+    "Reconnects": 0,
+    "LastError": ""
+  },
+  "unexpectedFc16": 0,
+  "finalSafeState": {
+    "tareCleared": true,
+    "grossSelected": true,
+    "monitoringNormal": true,
+    "stable": true,
+    "panelMatch": true,
+    "saveOrCalibrationSent": false
+  },
+  "lastRequestHex": "699100000006010301E00006",
+  "lastResponseHex": "69910000000F01030C00020001FFFFFFFFFFFF7B93"
+}
