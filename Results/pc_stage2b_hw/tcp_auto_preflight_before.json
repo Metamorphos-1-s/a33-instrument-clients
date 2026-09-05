@@ -1,0 +1,10 @@
+{
+  "command": "preflight",
+  "clientCommit": "f136663",
+  "firmwareCommit": "71a6124",
+  "endpoint": "192.168.1.100:502",
+  "unitId": 1,
+  "save": false,
+  "status": "FAIL",
+  "error": "Runtime operation requires a fresh compatible monitoring connection."
+}
