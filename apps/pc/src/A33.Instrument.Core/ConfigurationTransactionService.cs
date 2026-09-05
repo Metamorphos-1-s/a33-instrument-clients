@@ -7,6 +7,8 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
     private readonly SemaphoreSlim gate = new(1, 1);
     private ConfigurationSnapshot? snapshot;
     private ushort token = 1;
+    private ushort? activeToken;
+    private bool validated;
     public ConfigurationTransactionState State { get; private set; } = ConfigurationTransactionState.Disconnected;
     public ConfigurationSnapshot? Snapshot => snapshot;
     public IReadOnlyList<ConfigurationDifference> Differences => snapshot?.Fields.Where(f => f.IsDirty).Select(f => new ConfigurationDifference(f.Key, Format(f.Current), Format(f.Edited), f.Definition.Unit, f.Definition.RequiresReconnect)).ToArray() ?? [];
@@ -33,6 +35,7 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
 
     public void Edit(string key, long value)
     {
+        if (activeToken.HasValue) throw new InvalidOperationException("Cancel the active device transaction before editing.");
         if (snapshot is null) throw new InvalidOperationException("Configuration has not been refreshed.");
         var field = snapshot.Fields.FirstOrDefault(f => f.Key == key) ?? throw new KeyNotFoundException(key);
         if (!field.Definition.Editable || value < field.Definition.Minimum || value > field.Definition.Maximum) throw new ArgumentOutOfRangeException(nameof(value));
@@ -46,11 +49,9 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
         await gate.WaitAsync(cancellationToken); var wrote = false;
         try
         {
-            State = ConfigurationTransactionState.Validating; Notify();
-            var result = await SubmitAsync(9, cancellationToken); if (result != 0) return Reject(result);
-            foreach (var field in snapshot.Fields.Where(f => f.IsDirty)) { await monitoring.WithCommandExclusiveAsync(c => c.WriteMultipleAsync((ushort)(field.Address + 0x0040), field.Edited, cancellationToken), cancellationToken); wrote = true; }
-            result = await SubmitAsync(10, cancellationToken); if (result != 0) return Reject(result);
-            State = ConfigurationTransactionState.Applying; Notify(); result = await SubmitAsync(11, cancellationToken); if (result != 0) return Reject(result);
+            if (!validated || !activeToken.HasValue) throw new InvalidOperationException("Device validation is required before Apply RAM.");
+            State = ConfigurationTransactionState.Applying; Notify();
+            var result = await SubmitAsync(11, cancellationToken, activeToken.Value); if (result != 0) return Reject(result);
             await RefreshCoreAsync(cancellationToken); State = ConfigurationTransactionState.AppliedRam; Notify();
             if (save) { State = ConfigurationTransactionState.Saving; Notify(); result = await SubmitAsync(13, cancellationToken); if (result != 0) return Reject(result); await RefreshCoreAsync(cancellationToken); }
             return CommandExecutionState.Succeeded;
@@ -58,17 +59,22 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
         catch { State = wrote ? ConfigurationTransactionState.ResultUncertain : ConfigurationTransactionState.Error; Notify(); throw; }
         finally { gate.Release(); }
     }
-    public async Task BeginAsync(CancellationToken cancellationToken = default) { await gate.WaitAsync(cancellationToken); try { var r=await SubmitAsync(9,cancellationToken); if(r!=0) throw new InvalidOperationException($"Device rejected BEGIN with Result Code {r}."); } finally { gate.Release(); } }
-    public async Task ValidateAsync(CancellationToken cancellationToken = default) { await gate.WaitAsync(cancellationToken); try { var r=await SubmitAsync(10,cancellationToken); if(r!=0) throw new InvalidOperationException($"Device rejected VALIDATE with Result Code {r}."); } finally { gate.Release(); } }
+    public async Task BeginAsync(CancellationToken cancellationToken = default) => await ValidateDeviceAsync(cancellationToken);
+    public async Task ValidateAsync(CancellationToken cancellationToken = default) => await ValidateDeviceAsync(cancellationToken);
+    private async Task ValidateDeviceAsync(CancellationToken cancellationToken)
+    {
+        if (snapshot is null || !snapshot.Fields.Any(f => f.IsDirty)) throw new InvalidOperationException("No configuration changes are pending.");
+        await gate.WaitAsync(cancellationToken); try { if (activeToken.HasValue) throw new InvalidOperationException("A configuration transaction is already active."); activeToken=NextToken(); State=ConfigurationTransactionState.Validating; Notify(); var r=await SubmitAsync(9,cancellationToken,activeToken.Value); if(r!=0) throw new InvalidOperationException($"Device rejected BEGIN with Result Code {r}."); foreach(var field in snapshot.Fields.Where(f=>f.IsDirty)){await monitoring.WithCommandExclusiveAsync(c=>c.WriteMultipleAsync((ushort)(field.Address+0x40),field.Edited,cancellationToken),cancellationToken);} r=await SubmitAsync(10,cancellationToken,activeToken.Value); if(r!=0) throw new InvalidOperationException($"Device rejected VALIDATE with Result Code {r}."); validated=true; State=ConfigurationTransactionState.AppliedRam; Notify(); } catch { State=ConfigurationTransactionState.ResultUncertain; Notify(); throw; } finally { gate.Release(); }
+    }
 
     public async Task CancelAsync(CancellationToken cancellationToken = default)
     {
-        await gate.WaitAsync(cancellationToken); try { await SubmitAsync(12, cancellationToken); await RefreshCoreAsync(cancellationToken); } finally { gate.Release(); }
+        await gate.WaitAsync(cancellationToken); try { if(!activeToken.HasValue) throw new InvalidOperationException("No active configuration transaction."); await SubmitAsync(12, cancellationToken, activeToken.Value); activeToken=null; validated=false; await RefreshCoreAsync(cancellationToken); } finally { gate.Release(); }
     }
 
-    private async Task<ushort> SubmitAsync(ushort commandId, CancellationToken tokenCancellation)
+    private async Task<ushort> SubmitAsync(ushort commandId, CancellationToken tokenCancellation, ushort? transactionToken=null)
     {
-        var t = NextToken(); var words = new ushort[12]; words[0] = t; words[1] = commandId; words[11] = 0xA55A;
+        var t = transactionToken ?? NextToken(); var words = new ushort[12]; words[0] = t; words[1] = commandId; words[11] = 0xA55A;
         var result = await monitoring.WithCommandExclusiveAsync(async c => { await c.WriteMultipleAsync(0x0040, words, tokenCancellation); var response = await c.ReadHoldingAsync(0x004C, 12, tokenCancellation); if (response[0] != t || response[3] != commandId) throw new InvalidOperationException("Configuration response token/command mismatch."); return response[1]; }, tokenCancellation); return result;
     }
     private CommandExecutionState Reject(ushort result) { State = ConfigurationTransactionState.Error; Notify(); throw new InvalidOperationException($"Device rejected configuration transaction with Result Code {result}."); }

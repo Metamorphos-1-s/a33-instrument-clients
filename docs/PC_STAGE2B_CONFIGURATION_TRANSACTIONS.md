@@ -2,7 +2,7 @@
 
 ## Current Status
 
-This branch contains the safe configuration transaction core. Hardware
+This branch contains the safe configuration transaction core and WPF
 configuration validation is not run. The repository's actual Stage 2A record
 has RS232 skipped, so Stage 2B remains software-only and hardware-pending.
 
