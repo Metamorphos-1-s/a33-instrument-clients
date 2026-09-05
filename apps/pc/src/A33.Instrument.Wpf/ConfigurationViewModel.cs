@@ -11,7 +11,7 @@ public sealed partial class MainViewModel
     public string ConfigurationState => Configuration.State.ToString();
     public string ConfigurationDifferences => string.Join(Environment.NewLine, Configuration.Differences.Select(d => $"{d.Key}: {d.Current} -> {d.Edited} {d.Unit}"));
     public bool ConfigurationDirty => Configuration.Differences.Count > 0;
-    public AsyncRelayCommand RefreshConfigurationCommand => new(RefreshConfigurationAsync, () => State == MonitoringConnectionState.Monitoring && !runtimeBusy);
+    public AsyncRelayCommand RefreshConfigurationCommand => new(RefreshConfigurationAsync);
     public AsyncRelayCommand ValidateConfigurationCommand => new(ValidateConfigurationAsync, () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
     public AsyncRelayCommand ApplyConfigurationCommand => new(() => ApplyConfigurationAsync(false), () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
     public AsyncRelayCommand SaveConfigurationCommand => new(() => ApplyConfigurationAsync(true), () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
