@@ -17,8 +17,11 @@ public sealed partial class MainViewModel
     public AsyncRelayCommand SaveConfigurationCommand => new(() => ApplyConfigurationAsync(true), () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
     public AsyncRelayCommand CancelConfigurationCommand => new(CancelConfigurationAsync, () => State == MonitoringConnectionState.Monitoring && !runtimeBusy);
     public IReadOnlyList<ConfigurationFieldDefinition> ConfigurationFields => ConfigurationContract.EditableFields;
+    private string brightnessText = "";
+    public string BrightnessText { get => brightnessText; set { brightnessText = value; OnPropertyChanged(); } }
+    public AsyncRelayCommand EditBrightnessCommand => new(() => { if (int.TryParse(BrightnessText, out var value)) Configuration.Edit("brightness", value); ConfigurationStateChanged(); Refresh(); return Task.CompletedTask; }, () => State == MonitoringConnectionState.Monitoring && !runtimeBusy && Configuration.Snapshot is not null);
 
-    private async Task RefreshConfigurationAsync() { try { await Configuration.RefreshAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
+    private async Task RefreshConfigurationAsync() { try { var snapshot = await Configuration.RefreshAsync(); var field = snapshot.Fields.FirstOrDefault(f => f.Key == "brightness"); if (field is not null) BrightnessText = field.Edited[0].ToString(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
     private Task ValidateConfigurationAsync() { if (ConfigurationDirty) { ConfigurationStateChanged(); } return Task.CompletedTask; }
     private async Task ApplyConfigurationAsync(bool save)
     {
