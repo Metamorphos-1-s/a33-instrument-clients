@@ -1,0 +1,1 @@
+{"clientCommit":"89c2440","firmwareCommit":"71a6124","transport":"Modbus TCP","endpoint":"192.168.1.100:502","fc03Cycles":100,"success":100,"timeouts":0,"mbapErrors":0,"unitErrors":0,"badFrames":0,"exceptions":0,"fc06Sent":0,"fc16Sent":0}

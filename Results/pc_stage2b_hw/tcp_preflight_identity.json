@@ -1,0 +1,18 @@
+{
+  "clientCommit": "89c244053f27050359e8cd1d1dadc10e5cfd7d42",
+  "firmwareCommit": "71a61249645bff6249286ac801d7f468786cfe85",
+  "transport": "Modbus TCP",
+  "endpoint": "192.168.1.100:502",
+  "unitId": 1,
+  "map": "0x0104",
+  "firmware": "0x050A",
+  "activeUnit": 1,
+  "brightnessActiveAddress": "0x0116",
+  "brightnessActive": 3,
+  "brightnessStagingAddress": "0x0156",
+  "brightnessStaging": 3,
+  "brightnessRange": {"min": 0, "max": 7},
+  "realtimeStatus": "stable, zero, no tare, no overload observed",
+  "mailbox_0x004C_to_0x0057": [0,0,0,0,0,0,0,0,0,0,0,0],
+  "readonlyErrors": {"timeouts":0,"mbapErrors":0,"unitErrors":0,"badFrames":0,"exceptions":0}
+}

@@ -1,0 +1,1 @@
+{"originalBrightness":3,"testBrightness":4,"activeAddress":"0x0116","stagingAddress":"0x0156","range":"0..7","applyOnly":true,"save":false,"reboot":false,"restore":"BEGIN -> staging 0x0156=3 -> VALIDATE -> APPLY RAM -> full readback","tcpRecovery":"192.168.1.100:502 unit 1","noAutomaticRetry":true}

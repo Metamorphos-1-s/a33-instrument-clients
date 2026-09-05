@@ -14,7 +14,7 @@ public static class ConfigurationContract
 {
     public static readonly IReadOnlyList<ConfigurationFieldDefinition> EditableFields =
     [
-        new("brightness", 0x0116, 1, ConfigurationValueKind.UInt16, 0, 255, true, true, false, "level"),
+        new("brightness", 0x0116, 1, ConfigurationValueKind.UInt16, 0, 7, true, true, false, "level"),
         new("startup_auto_zero", 0x013C, 1, ConfigurationValueKind.Boolean, 0, 1, true, true, false, "bool"),
         new("profile0_filter_strength", 0x0123, 1, ConfigurationValueKind.UInt16, 0, 255, true, true, false, "level"),
         new("profile0_stability_window", 0x0124, 1, ConfigurationValueKind.UInt16, 1, 255, true, true, false, "samples"),
