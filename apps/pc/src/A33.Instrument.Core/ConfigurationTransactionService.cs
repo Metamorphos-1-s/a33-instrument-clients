@@ -48,7 +48,7 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
         {
             State = ConfigurationTransactionState.Validating; Notify();
             var result = await SubmitAsync(9, cancellationToken); if (result != 0) return Reject(result);
-            foreach (var field in snapshot.Fields.Where(f => f.IsDirty)) { await SetFieldAsync(field, cancellationToken); wrote = true; }
+            foreach (var field in snapshot.Fields.Where(f => f.IsDirty)) { await monitoring.WithCommandExclusiveAsync(c => c.WriteMultipleAsync((ushort)(field.Address + 0x0040), field.Edited, cancellationToken), cancellationToken); wrote = true; }
             result = await SubmitAsync(10, cancellationToken); if (result != 0) return Reject(result);
             State = ConfigurationTransactionState.Applying; Notify(); result = await SubmitAsync(11, cancellationToken); if (result != 0) return Reject(result);
             await RefreshCoreAsync(cancellationToken); State = ConfigurationTransactionState.AppliedRam; Notify();
@@ -68,22 +68,6 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
     {
         var t = NextToken(); var words = new ushort[12]; words[0] = t; words[1] = commandId; words[11] = 0xA55A;
         var result = await monitoring.WithCommandExclusiveAsync(async c => { await c.WriteMultipleAsync(0x0040, words, tokenCancellation); var response = await c.ReadHoldingAsync(0x004C, 12, tokenCancellation); if (response[0] != t || response[3] != commandId) throw new InvalidOperationException("Configuration response token/command mismatch."); return response[1]; }, tokenCancellation); return result;
-    }
-    private Task SetFieldAsync(ConfigurationField field, CancellationToken cancellationToken) => field.Key switch
-    {
-        "brightness" => SubmitFieldAsync(7, 13, 0, field.Edited[0], cancellationToken),
-        "startup_auto_zero" => SubmitFieldAsync(7, 20, 0, field.Edited[0], cancellationToken),
-        "profile0_filter_strength" => SubmitFieldAsync(29, 0, 3, field.Edited[0], cancellationToken),
-        "profile0_stability_window" => SubmitFieldAsync(29, 0, 4, field.Edited[0], cancellationToken),
-        "profile0_stability_hold_ms" => SubmitFieldAsync(29, 0, 7, field.Edited[0], cancellationToken),
-        "profile1_filter_strength" => SubmitFieldAsync(29, 1, 3, field.Edited[0], cancellationToken),
-        "profile1_stability_window" => SubmitFieldAsync(29, 1, 4, field.Edited[0], cancellationToken),
-        "profile1_stability_hold_ms" => SubmitFieldAsync(29, 1, 7, field.Edited[0], cancellationToken),
-        _ => throw new InvalidOperationException($"No safe command mapping for {field.Key}.")
-    };
-    private async Task SubmitFieldAsync(ushort commandId, int value0, int value1, long value64, CancellationToken cancellationToken)
-    {
-        var t=NextToken();var words=new ushort[12];words[0]=t;words[1]=commandId;words[2]=(ushort)(value0>>16);words[3]=(ushort)value0;words[4]=(ushort)(value1>>16);words[5]=(ushort)value1;var raw=unchecked((ulong)value64);for(var i=0;i<4;i++)words[6+i]=(ushort)(raw>>(48-16*i));words[11]=0xA55A;var result=await monitoring.WithCommandExclusiveAsync(async c=>{await c.WriteMultipleAsync(0x0040,words,cancellationToken);var response=await c.ReadHoldingAsync(0x004C,12,cancellationToken);if(response[0]!=t||response[3]!=commandId)throw new InvalidOperationException("Configuration response token/command mismatch.");return response[1];},cancellationToken);if(result!=0)throw new InvalidOperationException($"Device rejected configuration field with Result Code {result}.");
     }
     private CommandExecutionState Reject(ushort result) { State = ConfigurationTransactionState.Error; Notify(); throw new InvalidOperationException($"Device rejected configuration transaction with Result Code {result}."); }
     private ushort NextToken() { var current = token++; return current == 0 ? token++ : current; }
