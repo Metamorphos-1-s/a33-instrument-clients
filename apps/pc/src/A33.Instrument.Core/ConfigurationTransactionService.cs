@@ -27,7 +27,8 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
 
     private async Task<ConfigurationSnapshot> RefreshCoreAsync(CancellationToken cancellationToken)
     {
-            var values = await monitoring.WithCommandExclusiveAsync(async c => await c.ReadHoldingAsync(0x0100, 64, cancellationToken), cancellationToken);
+            var values = new ushort[64];
+            await monitoring.WithCommandExclusiveAsync(async c => { for (var i = 0; i < 4; i++) { var chunk = await c.ReadHoldingAsync((ushort)(0x0100 + i * 16), 16, cancellationToken); chunk.CopyTo(values, i * 16); } return 0; }, cancellationToken);
             if (monitoring.MapVersion != RegisterMap.Version) throw new InvalidOperationException("Configuration requires compatible Map 0x0104.");
             var fields = ConfigurationContract.EditableFields.Select(d => new ConfigurationField(d.Key, d.Address, Slice(values, d.Address - 0x0100, d.Width), Slice(values, d.Address - 0x0100, d.Width), d)).ToArray();
             snapshot = new ConfigurationSnapshot(monitoring.MapVersion, 0, values, values.ToArray(), fields, DateTimeOffset.Now); State = ConfigurationTransactionState.Ready; Notify(); return snapshot;

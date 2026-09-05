@@ -22,7 +22,7 @@ public sealed partial class MainViewModel
     public AsyncRelayCommand EditBrightnessCommand => new(() => { if (int.TryParse(BrightnessText, out var value)) Configuration.Edit("brightness", value); ConfigurationStateChanged(); Refresh(); return Task.CompletedTask; }, () => State == MonitoringConnectionState.Monitoring && !runtimeBusy && Configuration.Snapshot is not null);
     public AsyncRelayCommand BeginConfigurationCommand => new(async () => { try { await Configuration.BeginAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }, () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
 
-    private async Task RefreshConfigurationAsync() { try { var snapshot = await Configuration.RefreshAsync(); var field = snapshot.Fields.FirstOrDefault(f => f.Key == "brightness"); if (field is not null) BrightnessText = field.Edited[0].ToString(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
+    private async Task RefreshConfigurationAsync() { try { var snapshot = await Configuration.RefreshAsync(); var field = snapshot.Fields.FirstOrDefault(f => f.Key == "brightness"); if (field is not null) BrightnessText = field.Edited[0].ToString(); } catch (Exception error) { service.Diagnostics.Error(error); MessageBox.Show(error.Message, "Configuration refresh failed", MessageBoxButton.OK, MessageBoxImage.Error); } Refresh(); }
     private async Task ValidateConfigurationAsync() { try { await Configuration.ValidateAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
     private async Task ApplyConfigurationAsync(bool save)
     {
