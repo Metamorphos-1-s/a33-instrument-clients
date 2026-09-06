@@ -1,0 +1,12 @@
+{
+  "command": "apply-restore-test",
+  "clientCommit": "a46ccf9",
+  "firmwareCommit": "71a6124",
+  "tokenPlan": "12,13,14,15,16,17",
+  "saveRequests": 0,
+  "cancelRequests": 0,
+  "appliedBrightness": 4,
+  "restoredBrightness": 3,
+  "activeUnchangedExceptBrightness": true,
+  "status": "PASS"
+}
