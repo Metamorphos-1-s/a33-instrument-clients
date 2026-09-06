@@ -24,8 +24,8 @@ public static class StrictPreflightRunner
         var outputDirectory = PersistenceEvidenceDirectory.CreateUnique(root, workflowId, DateTimeOffset.UtcNow);
         var assembly = typeof(StrictPreflightRunner).Assembly;
         var clientCommit = ToolBuildIdentity.GetCommit(assembly);
+        var toolHash = ToolBuildIdentity.GetToolSha256(assembly);
         var baseline = PersistenceBaselineContract.LoadFromRepository(repositoryRoot);
-        var environment = PreflightEnvironment.Capture(assembly);
         var clock = new SystemPersistenceClock();
         var started = clock.UtcNow;
         var access = sessionFactory?.Invoke(clock) ?? new TcpPreflightRegisterAccess("192.168.1.100", 502, 1, TimeSpan.FromSeconds(2), clock);
@@ -57,12 +57,13 @@ public static class StrictPreflightRunner
         }
 
         var completed = clock.UtcNow;
+        var environment = PreflightEnvironment.Capture(assembly, workflowId, clientCommit, toolHash, started, completed);
         var requests = PreflightRequestStatistics.FromTrace(access.Trace);
         var connections = new PreflightConnectionStatistics(attempts, succeeded, failed, disconnects, 0);
         var failureReasons = report?.FailureReasons ?? (failure is null ? [] : [$"{failure.GetType().Name}: {failure.Message}"]);
         var gates = report?.Gates ?? new Dictionary<string, bool> { ["execution_completed"] = false };
-        var summary = new PreflightSummary(1, workflowId, clientCommit,
-            environment.ToolAssemblyVersion, ComputeToolHash(assembly), ConfigurationPersistenceService.FixedStm32Commit,
+        var summary = new PreflightSummary(2, workflowId, clientCommit,
+            environment.ToolAssemblyVersion, toolHash, ConfigurationPersistenceService.FixedStm32Commit,
             baseline.Manifest.BaselineId, baseline.Manifest.ActiveArraySha256, baseline.ManifestSha256,
             started, completed, (completed - started).TotalMilliseconds, report?.Timing.FreshnessWaitMs ?? 0,
             report?.Timing.InitialSampleSequence ?? 0, report?.Timing.FinalSampleSequence ?? 0,
@@ -77,8 +78,6 @@ public static class StrictPreflightRunner
         Console.WriteLine($"FINAL_STATUS={stored.FinalStatus}");
         return stored.FinalStatus == "PASS" ? 0 : 6;
     }
-
-    private static string ComputeToolHash(Assembly assembly) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assembly.Location)));
 
     private static string Get(string[] args, string key, string fallback)
     {
@@ -170,6 +169,8 @@ internal static class ToolBuildIdentity
             throw new InvalidDataException("Tool assembly does not contain a reliable Git commit.");
         return value.ToLowerInvariant();
     }
+
+    public static string GetToolSha256(Assembly assembly) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(assembly.Location)));
 }
 
 internal static class RepositoryRoot

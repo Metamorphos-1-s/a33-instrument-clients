@@ -4,24 +4,32 @@ namespace A33.Instrument.HardwareValidation;
 
 public static class PersistenceHardwareRunner
 {
-    public static Task<int> RunAsync(string[] args, Func<InstrumentMonitoringService>? monitoringFactory = null) =>
+    public static Task<int> RunAsync(
+        string[] args, Func<InstrumentMonitoringService>? monitoringFactory = null,
+        string? evidenceRootOverride = null, Func<DateTimeOffset>? utcNow = null) =>
         PersistenceHardwareAuthorizationGate.ExecuteAfterAuthorizationAsync(args,
-            authorization => RunAuthorizedAsync(authorization, monitoringFactory ?? (() => new InstrumentMonitoringService())));
+            authorization => RunAuthorizedAsync(authorization, monitoringFactory ?? (() => new InstrumentMonitoringService()), evidenceRootOverride, utcNow ?? (() => DateTimeOffset.UtcNow)));
 
-    private static async Task<int> RunAuthorizedAsync(PersistenceHardwareAuthorization authorization, Func<InstrumentMonitoringService> monitoringFactory)
+    private static async Task<int> RunAuthorizedAsync(
+        PersistenceHardwareAuthorization authorization, Func<InstrumentMonitoringService> monitoringFactory,
+        string? evidenceRootOverride, Func<DateTimeOffset> utcNow)
     {
         var repositoryRoot = RepositoryRoot.Find();
-        var evidenceRoot = Path.Combine(repositoryRoot, "Results", "pc_stage2b_hw");
+        var evidenceRoot = evidenceRootOverride ?? Path.Combine(repositoryRoot, "Results", "pc_stage2b_hw");
         var baseline = PersistenceBaselineContract.LoadFromRepository(repositoryRoot);
-        var clientCommit = ToolBuildIdentity.GetCommit(typeof(PersistenceHardwareRunner).Assembly);
+        var assembly = typeof(PersistenceHardwareRunner).Assembly;
+        var clientCommit = ToolBuildIdentity.GetCommit(assembly);
+        var toolVersion = assembly.GetName().Version?.ToString() ?? "unknown";
+        var toolSha256 = ToolBuildIdentity.GetToolSha256(assembly);
         string journalPath;
         string workflowId;
         ValidatedPreflightBinding binding;
         if (authorization.PreflightWorkflowId is not null)
         {
-            binding = PreflightEvidenceValidator.Validate(evidenceRoot, authorization.PreflightWorkflowId, clientCommit, baseline, DateTimeOffset.UtcNow);
+            binding = PreflightEvidenceValidator.Validate(evidenceRoot, authorization.PreflightWorkflowId, clientCommit, baseline, utcNow(),
+                currentToolVersion: toolVersion, currentToolSha256: toolSha256);
             workflowId = Guid.NewGuid().ToString("D");
-            var directory = PersistenceEvidenceDirectory.CreateUnique(evidenceRoot, workflowId, DateTimeOffset.UtcNow);
+            var directory = PersistenceEvidenceDirectory.CreateUnique(evidenceRoot, workflowId, utcNow());
             journalPath = Path.Combine(directory, "persistence-journal.json");
         }
         else
@@ -35,7 +43,8 @@ public static class PersistenceHardwareRunner
             journalPath = matches[0];
             var journal = await PersistenceJournalStore.ReadAsync(journalPath);
             if (journal.WorkflowId != workflowId) { Console.Error.WriteLine("PERSISTENCE_JOURNAL_ID_MISMATCH"); return 14; }
-            binding = PreflightEvidenceValidator.Validate(evidenceRoot, journal.BoundPreflightWorkflowId, clientCommit, baseline, DateTimeOffset.UtcNow, requireFresh: false);
+            binding = PreflightEvidenceValidator.Validate(evidenceRoot, journal.BoundPreflightWorkflowId, clientCommit, baseline, utcNow(), requireFresh: false,
+                currentToolVersion: toolVersion, currentToolSha256: toolSha256);
         }
 
         var safety = new PersistenceSafetyContext(baseline, binding, clientCommit);

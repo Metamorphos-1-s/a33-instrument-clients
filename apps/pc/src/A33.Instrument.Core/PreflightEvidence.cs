@@ -97,7 +97,8 @@ public static class PreflightEvidenceValidator
 
     public static ValidatedPreflightBinding Validate(
         string evidenceRoot, string workflowId, string currentClientCommit,
-        TrustedPersistenceBaseline baseline, DateTimeOffset now, bool requireFresh = true)
+        TrustedPersistenceBaseline baseline, DateTimeOffset now, bool requireFresh = true,
+        string? currentToolVersion = null, string? currentToolSha256 = null)
     {
         if (!Guid.TryParse(workflowId, out _)) throw new InvalidDataException("Preflight workflow ID must be a GUID.");
         if (!Directory.Exists(evidenceRoot)) throw new InvalidDataException("Preflight evidence root does not exist.");
@@ -109,7 +110,7 @@ public static class PreflightEvidenceValidator
             if (!File.Exists(Path.Combine(directory, file))) throw new InvalidDataException($"Required preflight evidence is missing: {file}");
         var summaryPath = Path.Combine(directory, "preflight-summary.json");
         var summary = AtomicJsonFile.Read<PreflightSummary>(summaryPath);
-        if (summary.SchemaVersion != 1 || summary.WorkflowId != workflowId || summary.FinalStatus != "PASS")
+        if (summary.SchemaVersion != 2 || summary.WorkflowId != workflowId || summary.FinalStatus != "PASS")
             throw new InvalidDataException("Preflight summary is not an authorized PASS.");
         if (summary.ClientCommit != currentClientCommit || summary.Stm32Commit != ConfigurationPersistenceService.FixedStm32Commit ||
             summary.BaselineId != baseline.Manifest.BaselineId || summary.BaselineSha256 != baseline.Manifest.ActiveArraySha256 ||
@@ -117,6 +118,9 @@ public static class PreflightEvidenceValidator
             throw new InvalidDataException("Preflight evidence identity or baseline binding mismatch.");
         if (summary.Identity is not { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 })
             throw new InvalidDataException("Preflight device identity does not match the fixed contract.");
+        if ((currentToolVersion is not null && summary.ToolAssemblyVersion != currentToolVersion) ||
+            (currentToolSha256 is not null && summary.ToolSha256 != currentToolSha256))
+            throw new InvalidDataException("Preflight evidence was not produced by the current HardwareValidation tool binary.");
         if (summary.CompletedAtUtc > now || (requireFresh && now - summary.CompletedAtUtc > MaximumEvidenceAge))
             throw new InvalidDataException("Preflight evidence is expired or from the future.");
         if (summary.CompletedAtUtc < summary.StartedAtUtc || summary.DurationMs < 0 || summary.FreshnessWaitMs < 0 ||
@@ -137,6 +141,8 @@ public static class PreflightEvidenceValidator
         }
         if (summary.EvidenceFileSha256.Count != PreflightEvidenceStore.RequiredFiles.Length - 1)
             throw new InvalidDataException("Preflight evidence hash set is incomplete.");
+        var environment = AtomicJsonFile.Read<PreflightEnvironmentEvidence>(Path.Combine(directory, "environment.json"));
+        ValidateEnvironment(environment, summary, currentClientCommit);
         var trace = AtomicJsonFile.Read<PreflightRequestTrace[]>(Path.Combine(directory, "request-trace.json"));
         ValidateTraceShape(trace);
         var requests = PreflightRequestStatistics.FromTrace(trace);
@@ -170,6 +176,24 @@ public static class PreflightEvidenceValidator
         "config_store_known_consistent_idle", "config_store_clean", "request_trace_consistent", "errors_clean", "read_only"
     ];
 
+    private static void ValidateEnvironment(PreflightEnvironmentEvidence environment, PreflightSummary summary, string currentClientCommit)
+    {
+        if (environment is null || environment.SchemaVersion != 1 || environment.WorkflowId != summary.WorkflowId ||
+            environment.StartedAtUtc.Offset != TimeSpan.Zero || environment.CompletedAtUtc.Offset != TimeSpan.Zero ||
+            environment.StartedAtUtc != summary.StartedAtUtc || environment.CompletedAtUtc != summary.CompletedAtUtc ||
+            environment.CompletedAtUtc < environment.StartedAtUtc ||
+            environment.ClientCommit != summary.ClientCommit || environment.ClientCommit != currentClientCommit ||
+            environment.ClientCommit.Length != 40 || environment.ClientCommit.Any(x => !Uri.IsHexDigit(x)) ||
+            environment.ToolAssemblyVersion != summary.ToolAssemblyVersion || environment.ToolSha256 != summary.ToolSha256 ||
+            environment.ToolSha256.Length != 64 || environment.ToolSha256.Any(x => !Uri.IsHexDigit(x)) ||
+            string.IsNullOrWhiteSpace(environment.OsDescription) || string.IsNullOrWhiteSpace(environment.FrameworkDescription) ||
+            string.IsNullOrWhiteSpace(environment.ProcessArchitecture) || string.IsNullOrWhiteSpace(environment.MachineName) ||
+            string.IsNullOrWhiteSpace(environment.ToolAssemblyVersion) || environment.ToolAssemblyVersion == "unknown")
+            throw new InvalidDataException("Preflight environment evidence does not match its summary, build, UTC run, or tool identity.");
+        if (Math.Abs((environment.CompletedAtUtc - environment.StartedAtUtc).TotalMilliseconds - summary.DurationMs) > 1)
+            throw new InvalidDataException("Preflight environment duration does not match its summary.");
+    }
+
     private static void ValidateTraceShape(IReadOnlyList<PreflightRequestTrace> trace)
     {
         if (trace.Count == 0 || trace.Any(x => x is null || x.FunctionCode != 3 || !x.Succeeded || x.RegisterCount is 0 or > 16 ||
@@ -188,8 +212,11 @@ public static class PreflightEvidenceValidator
 
 public static class PreflightEnvironment
 {
-    public static PreflightEnvironmentEvidence Capture(Assembly assembly) => new(
+    public static PreflightEnvironmentEvidence Capture(
+        Assembly assembly, string workflowId, string clientCommit, string toolSha256,
+        DateTimeOffset startedAtUtc, DateTimeOffset completedAtUtc) => new(
+        1, workflowId, startedAtUtc, completedAtUtc, clientCommit,
+        assembly.GetName().Version?.ToString() ?? "unknown", toolSha256,
         RuntimeInformation.OSDescription, RuntimeInformation.FrameworkDescription,
-        RuntimeInformation.ProcessArchitecture.ToString(), Environment.MachineName,
-        assembly.GetName().Version?.ToString() ?? "unknown");
+        RuntimeInformation.ProcessArchitecture.ToString(), Environment.MachineName);
 }

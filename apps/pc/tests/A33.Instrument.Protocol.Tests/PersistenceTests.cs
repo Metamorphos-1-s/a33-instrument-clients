@@ -419,7 +419,10 @@ public sealed class PersistenceTests
         var exit = await StrictPreflightRunner.RunAsync(["preflight", "--output-root", files.Root], _ => access);
         Assert.Equal(0, exit); var directory = Assert.Single(Directory.GetDirectories(files.Root));
         var summary = AtomicJsonFile.Read<PreflightSummary>(System.IO.Path.Combine(directory, "preflight-summary.json"));
+        var environment = AtomicJsonFile.Read<PreflightEnvironmentEvidence>(System.IO.Path.Combine(directory, "environment.json"));
         Assert.Equal(new PreflightConnectionStatistics(1, 1, 0, 1, 0), summary.Connections);
+        Assert.Equal(summary.WorkflowId, environment.WorkflowId); Assert.Equal(summary.ClientCommit, environment.ClientCommit);
+        Assert.Equal(summary.StartedAtUtc, environment.StartedAtUtc); Assert.Equal(summary.CompletedAtUtc, environment.CompletedAtUtc);
         Assert.Equal(summary.Requests.Fc03Attempted, AtomicJsonFile.Read<PreflightRequestTrace[]>(System.IO.Path.Combine(directory, "request-trace.json")).Length);
     }
 
@@ -429,7 +432,9 @@ public sealed class PersistenceTests
         var exit = await StrictPreflightRunner.RunAsync(["preflight", "--output-root", files.Root], _ => access);
         Assert.Equal(6, exit); var directory = Assert.Single(Directory.GetDirectories(files.Root));
         var summary = AtomicJsonFile.Read<PreflightSummary>(System.IO.Path.Combine(directory, "preflight-summary.json"));
+        var environment = AtomicJsonFile.Read<PreflightEnvironmentEvidence>(System.IO.Path.Combine(directory, "environment.json"));
         Assert.Equal(new PreflightConnectionStatistics(1, 0, 1, 0, 0), summary.Connections);
+        Assert.Equal(summary.ClientCommit, environment.ClientCommit); Assert.Equal(summary.CompletedAtUtc, environment.CompletedAtUtc);
         Assert.Equal("FAIL", summary.FinalStatus); Assert.Equal(1, summary.Errors.TransportErrors);
     }
 
@@ -530,7 +535,7 @@ public sealed class PersistenceTests
         var now = DateTimeOffset.Parse("2026-09-07T00:00:00Z");
         var requests = new PreflightRequestStatistics(1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         var errors = new PreflightErrorCounters(0, 0, 0, 0, 0, 0, 0, 0);
-        var summary = new PreflightSummary(1, PreflightWorkflowId, ClientCommit, "1.0.0", Hash64,
+        var summary = new PreflightSummary(2, PreflightWorkflowId, ClientCommit, "1.0.0", Hash64,
             ConfigurationPersistenceService.FixedStm32Commit, Baseline().Manifest.BaselineId,
             Baseline().Manifest.ActiveArraySha256, Baseline().ManifestSha256, now, now, 0, 0, 1, 2,
             "192.168.1.100:502", 1, new DeviceIdentity(0x050A, 2, 0x0104, 1), new(1, 1, 0, 1, 0), requests, errors,

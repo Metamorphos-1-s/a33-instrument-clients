@@ -39,7 +39,10 @@ public sealed record PreflightTimingEvidence(
     DateTimeOffset FreshnessStartedAtUtc, DateTimeOffset FreshnessCompletedAtUtc,
     double FreshnessWaitMs, uint InitialSampleSequence, uint FinalSampleSequence);
 
-public sealed record PreflightEnvironmentEvidence(string OsDescription, string FrameworkDescription, string ProcessArchitecture, string MachineName, string ToolAssemblyVersion);
+public sealed record PreflightEnvironmentEvidence(
+    int SchemaVersion, string WorkflowId, DateTimeOffset StartedAtUtc, DateTimeOffset CompletedAtUtc,
+    string ClientCommit, string ToolAssemblyVersion, string ToolSha256,
+    string OsDescription, string FrameworkDescription, string ProcessArchitecture, string MachineName);
 public sealed record ConfigurationRegisterDifference(ushort Address, ushort ActiveValue, ushort StagingValue);
 public sealed record ConfigStorePreflightEvidence(WordOrder WordOrder, ushort[] DiagnosticsRaw, ushort[] StorageRaw, ConfigStoreSnapshot Parsed);
 

@@ -66,6 +66,23 @@ tool assembly version and SHA-256, firmware commit, baseline and Manifest
 hashes, UTC timing, freshness timing, connection/request/error statistics,
 individual gates, and final result. `BUILD_FROM_CURRENT_CHECKOUT` is rejected.
 
+Preflight summary schema 2 binds `environment.json` as an independently useful
+run artifact. The environment file has its own schema and records the workflow
+ID, exact UTC start and completion times, full 40-character build commit, tool
+assembly version and SHA-256, OS, framework, process architecture, and machine
+name. Successful and failed Fake/real runs construct it from the same immutable
+run values used by the summary, and it remains one of the atomically written,
+hashed eight evidence files.
+
+Evidence validation deserializes `environment.json`; a matching file hash is
+not sufficient. Workflow ID, UTC offsets and ordering, exact start/end times,
+duration, current/full build commit, tool version, tool hash, and non-empty
+platform fields must agree with the summary and current client. A missing,
+damaged, expired, tampered, non-UTC, or semantically conflicting environment
+file rejects persistence before the monitoring or Transport factory is called.
+The persistence runner also compares the summary/environment tool version and
+SHA-256 with its currently executing HardwareValidation assembly.
+
 Each request trace entry records sequence, UTC start/end, duration, function,
 address, count, request and response hex, returned register count, success,
 exception category/code, and read purpose. FC03 attempted/succeeded/failed are
