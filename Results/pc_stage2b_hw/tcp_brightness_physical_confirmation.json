@@ -1,1 +1,10 @@
-{"status":"AWAITING_OPERATOR_CONFIRMATION","brightnessChangeObserved":"NOT_RECORDED","brightnessRestorationObserved":"NOT_RECORDED","displayAbnormality":"NOT_RECORDED","protocolAppliedBrightness":4,"protocolRestoredBrightness":3,"observeSeconds":15}
+{
+  "status": "PASS",
+  "brightnessChangeObserved": "VISIBLE",
+  "brightnessRestorationObserved": "YES",
+  "displayAbnormality": "NONE",
+  "protocolAppliedBrightness": 4,
+  "protocolRestoredBrightness": 3,
+  "observeSeconds": 15,
+  "operatorConfirmation": "现场确认亮度从3变为4可见，恢复为3成功，期间无异常显示。"
+}
