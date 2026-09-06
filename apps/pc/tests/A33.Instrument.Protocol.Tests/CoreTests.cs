@@ -30,6 +30,10 @@ public class CoreTests
     [Fact] public void ConfigurationFieldDirtyComparisonUsesSnapshotValues(){var d=ConfigurationContract.EditableFields.Single(f=>f.Key=="brightness");var clean=new ConfigurationField(d.Key,d.Address,new ushort[]{3},new ushort[]{3},d);Assert.False(clean.IsDirty);var dirty=clean with { Edited=new ushort[]{4} };Assert.True(dirty.IsDirty);var restored=dirty with { Edited=new ushort[]{3} };Assert.False(restored.IsDirty);}
     [Fact] public void StrictPreflightConfigurationChunksAreFourBySixteen(){Assert.Equal(new ushort[]{0x0100,0x0110,0x0120,0x0130},new ushort[]{0x0100,0x0110,0x0120,0x0130});Assert.Equal(new ushort[]{0x0140,0x0150,0x0160,0x0170},new ushort[]{0x0140,0x0150,0x0160,0x0170});}
     [Fact] public void StrictPreflightWritePolicyIsReadOnly(){Assert.Equal(0,0);Assert.NotEqual(13,0);}
+    [Fact] public void PersistenceDenyAllRejectsSave(){var w=new PersistenceWorkflow(new DenyAllPersistenceAuthorization());w.MarkPreflight();w.MarkTestApplied();Assert.Throws<UnauthorizedAccessException>(()=>w.RequestTestSave(1));Assert.Equal(0,w.SaveAttemptCount);}
+    [Fact] public void PersistenceBudgetAllowsExactlyTwoSaves(){var w=new PersistenceWorkflow(new AllowPersistence());w.MarkPreflight();w.MarkTestApplied();w.RequestTestSave(1);w.ConfirmTestSave();w.MarkTestRebootVerified();w.MarkOriginalApplied();w.RequestOriginalSave(2);w.ConfirmOriginalSave();Assert.Equal(0,w.SaveBudget);Assert.Equal(2,w.SaveAttemptCount);}
+    [Fact] public void PersistenceThirdSaveRejected(){var w=new PersistenceWorkflow(new AllowPersistence());w.MarkPreflight();w.MarkTestApplied();w.RequestTestSave(1);w.ConfirmTestSave();w.MarkTestRebootVerified();w.MarkOriginalApplied();w.RequestOriginalSave(2);w.ConfirmOriginalSave();w.MarkFinalRebootVerified();w.Complete();Assert.Throws<InvalidOperationException>(()=>w.RequestOriginalSave(3));}
+    private sealed class AllowPersistence:IPersistenceWriteAuthorization { public bool Allowed=>true; }
 
     private static MonitoringOptions Options()=>new(TransportMode.Tcp,PollIntervalMs:100,RequestTimeoutMs:100);
     private static ushort Address(ReadOnlyMemory<byte> pdu)=>(ushort)(pdu.Span[1]<<8|pdu.Span[2]);
