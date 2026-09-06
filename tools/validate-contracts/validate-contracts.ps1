@@ -23,6 +23,22 @@ foreach($entry in $required.GetEnumerator()){
     throw "ConfigStore contract mismatch: $($entry.Key)"
   }
 }
+$baselinePath = Join-Path $root 'Results/pc_stage2b_hw/persistence_baseline_manifest.json'
+$baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
+if ($baseline.schema_version -ne 1 -or $baseline.baseline_id -ne 'a33-stage2b-prewrite-brightness3-20260906' -or
+    $baseline.source_evidence_file -ne 'Results/pc_stage2b_hw/tcp_strict_preflight.json' -or
+    $baseline.register_count -ne 64 -or $baseline.active_registers.Count -ne 64 -or
+    $baseline.original_brightness -ne 3 -or -not $baseline.proven_before_first_stage2b_write) {
+  throw 'persistence baseline provenance or shape mismatch'
+}
+$canonical = ConvertTo-Json @($baseline.active_registers) -Compress
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try { $hashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonical)) }
+finally { $sha256.Dispose() }
+$baselineHash = ([BitConverter]::ToString($hashBytes)).Replace('-', '')
+if ($baselineHash -ne $baseline.active_array_sha256 -or $baselineHash -ne '8C2E5BA6BF39436E5DF2956DE7E09A058DDA330C6462073483E4E70CAD1CACEE') {
+  throw 'persistence baseline hash mismatch'
+}
 if ($goldenBle.frames.Count -lt 3 -or $goldenModbus.tcp.mapVersionRequest -ne '0001000000060103000e0001') { throw 'golden vectors incomplete' }
 foreach($frame in $goldenBle.frames){if(-not (Test-Crc $frame.hex)){throw "BLE golden CRC invalid: $($frame.name)"}}
 Write-Output "Validated $($map.Count) register definitions, no overlaps; BLE/Modbus golden contracts parsed."

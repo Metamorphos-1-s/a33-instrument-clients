@@ -32,6 +32,13 @@ public sealed record PersistencePollingPolicy(TimeSpan Interval, TimeSpan Timeou
     public static PersistencePollingPolicy Default { get; } = new(TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(30));
 }
 
+public sealed record ConfigStoreSamplingPolicy(int MaximumAttempts, int RequiredConsecutiveTerminalSamples, TimeSpan Interval)
+{
+    public static ConfigStoreSamplingPolicy Default { get; } = new(4, 2, TimeSpan.FromMilliseconds(50));
+}
+
+public sealed record PersistenceSafetyContext(TrustedPersistenceBaseline Baseline, ValidatedPreflightBinding Preflight, string ClientCommit);
+
 public interface IConfigurationPersistenceService
 {
     Task<PersistenceJournal> StartAsync(string journalPath, string workflowId, string clientCommit, CancellationToken cancellationToken = default);
@@ -40,8 +47,10 @@ public interface IConfigurationPersistenceService
 
 public sealed class ConfigurationPersistenceService(
     IConfigurationPersistenceDevice device,
+    PersistenceSafetyContext safetyContext,
     IPersistenceClock? clock = null,
-    PersistencePollingPolicy? pollingPolicy = null) : IConfigurationPersistenceService
+    PersistencePollingPolicy? pollingPolicy = null,
+    ConfigStoreSamplingPolicy? samplingPolicy = null) : IConfigurationPersistenceService
 {
     public const int FixedSaveBudget = 2;
     public const ushort OriginalBrightness = 3;
@@ -51,29 +60,36 @@ public sealed class ConfigurationPersistenceService(
 
     private readonly IPersistenceClock clock = clock ?? new SystemPersistenceClock();
     private readonly PersistencePollingPolicy polling = pollingPolicy ?? PersistencePollingPolicy.Default;
+    private readonly ConfigStoreSamplingPolicy sampling = samplingPolicy ?? ConfigStoreSamplingPolicy.Default;
 
     public async Task<PersistenceJournal> StartAsync(
         string journalPath, string workflowId, string clientCommit,
         CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(workflowId, out _)) throw new ArgumentException("Workflow ID must be a GUID.", nameof(workflowId));
+        if (clientCommit != safetyContext.ClientCommit || clientCommit != safetyContext.Preflight.Summary.ClientCommit)
+            throw new InvalidOperationException("Current client commit does not match the bound preflight evidence.");
         var identity = await device.ReadIdentityAsync(cancellationToken);
-        ValidateIdentity(identity);
         var mailbox = await device.ReadMailboxAsync(cancellationToken);
-        var store = await device.ReadConfigStoreAsync(cancellationToken);
-        ValidatePreflightStore(store);
+        var store = await ReadStableConfigStoreAsync(cancellationToken);
         var original = await ReadActive64Async(cancellationToken);
-        if (original[BrightnessOffset] != OriginalBrightness)
-            throw new InvalidOperationException("The fixed Stage 2B workflow requires original brightness 3.");
+        ValidateOnSiteGate(identity, mailbox, store, original);
         var expected = WithBrightness(original, TestBrightness);
         var now = clock.UtcNow;
         var journal = new PersistenceJournal
         {
             WorkflowId = workflowId, ClientCommit = clientCommit, Stm32Commit = FixedStm32Commit,
+            BaselineId = safetyContext.Baseline.Manifest.BaselineId,
+            BaselineSha256 = safetyContext.Baseline.Manifest.ActiveArraySha256,
+            BaselineManifestSha256 = safetyContext.Baseline.ManifestSha256,
+            BoundPreflightWorkflowId = safetyContext.Preflight.WorkflowId,
+            PreflightSummarySha256 = safetyContext.Preflight.SummarySha256,
             CreatedAt = now, UpdatedAt = now, Phase = PersistencePhase.PreflightComplete, Cycle = PersistenceCycle.A,
+            AuthorizationStage = PersistenceAuthorizationStage.BoundPreflight,
             OriginalActiveConfiguration = original, ExpectedActiveConfiguration = expected,
             SaveTokens = [], PollSnapshots = [], LastMailboxToken = mailbox.ResponseToken,
-            Events = [new(now, PersistenceEventKind.Information, "Read-only identity, Mailbox, ConfigStore and active configuration preflight completed.")]
+            Events = [new(now, PersistenceEventKind.Information, "Bound preflight evidence and the read-only on-site safety gate were validated.")],
+            CycleAEvidence = new PersistenceCycleEvidence { Cycle = PersistenceCycle.A, ExpectedActiveConfiguration = expected, ActiveBeforeApply = original }
         };
         await SaveJournalAsync(journalPath, journal, cancellationToken);
         return await ExecuteCycleAsync(journalPath, journal, TestBrightness, mailbox.ResponseToken, cancellationToken);
@@ -87,6 +103,7 @@ public sealed class ConfigurationPersistenceService(
         {
             throw new InvalidDataException("Persistence recovery is safely blocked because the journal cannot be trusted.", error);
         }
+        ValidateJournalBinding(journal);
         if (journal.Phase is PersistencePhase.ResultUncertain or PersistencePhase.Failed or PersistencePhase.Complete)
             return journal;
         if (journal.Phase is PersistencePhase.TestValueSaveRequested or PersistencePhase.SavingTestValue or
@@ -99,14 +116,27 @@ public sealed class ConfigurationPersistenceService(
             throw new InvalidOperationException("Journal is not waiting for a manual reboot.");
 
         var identity = await device.ReadIdentityAsync(cancellationToken);
-        ValidateIdentity(identity);
         var mailbox = await device.ReadMailboxAsync(cancellationToken);
-        var store = await device.ReadConfigStoreAsync(cancellationToken);
-        ValidatePreflightStore(store);
+        var store = await ReadStableConfigStoreAsync(cancellationToken);
         var active = await ReadActive64Async(cancellationToken);
-        if (journal.Phase != PersistencePhase.TestValuePersistenceVerified && mailbox.ResponseToken != 0)
-            throw new InvalidOperationException("Manual device reboot was not observed: firmware Mailbox token did not reset to zero.");
+        var cycleEvidence = journal.Phase == PersistencePhase.TestValuePersistenceVerified
+            ? journal.CycleAEvidence
+            : CurrentCycleEvidence(journal);
+        var expectedConfirmed = cycleEvidence.SaveConfirmed;
+        var expectedActive = cycleEvidence.ExpectedActiveConfiguration;
+        var rebootValid = identity is { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 } &&
+            mailbox.ResponseToken == 0 && !mailbox.Busy && !mailbox.Pending &&
+            store.StatesKnown && store.StatesConsistent && store.State == ConfigStoreState.Idle &&
+            !store.ConfigDirty && store.CurrentRevision == store.SavedRevision && expectedConfirmed is not null &&
+            store.ActiveSlot == expectedConfirmed.ActiveSlot && store.ActiveSequence == expectedConfirmed.ActiveSequence &&
+            store.CurrentRevision == expectedConfirmed.CurrentRevision && expectedActive.SequenceEqual(active);
+        if (!rebootValid)
+            return await MarkUncertainAsync(journalPath, journal, "Post-reboot identity, Mailbox, ConfigStore metadata, or Active configuration continuity failed.", cancellationToken);
         var now = clock.UtcNow;
+        var rebootEvidence = new PersistenceRebootEvidence(now, identity, mailbox, store, active,
+            PersistenceBaselineContract.ComputeActiveSha256(active));
+        cycleEvidence = cycleEvidence with { RebootEvidence = rebootEvidence };
+        journal = SetCycleEvidence(journal, cycleEvidence);
         journal = AddEvent(journal with
         {
             UpdatedAt = now,
@@ -117,12 +147,19 @@ public sealed class ConfigurationPersistenceService(
 
         if (journal.Cycle == PersistenceCycle.A)
         {
-            if (!journal.ExpectedActiveConfiguration.SequenceEqual(active))
-                return await MarkUncertainAsync(journalPath, journal, "First reboot persistence verification failed.", cancellationToken);
+            var cycleB = new PersistenceCycleEvidence
+            {
+                Cycle = PersistenceCycle.B,
+                ExpectedActiveConfiguration = journal.OriginalActiveConfiguration.ToArray(),
+                ActiveBeforeApply = active.ToArray()
+            };
             journal = AddEvent(journal with
             {
                 Phase = PersistencePhase.TestValuePersistenceVerified, Cycle = PersistenceCycle.B,
-                VerificationResult = "Brightness 4 persisted after the first manual reboot."
+                AuthorizationStage = PersistenceAuthorizationStage.CycleBWrites,
+                VerificationResult = "Brightness 4 and cycle A metadata persisted after the first manual reboot.",
+                CycleBEvidence = cycleB,
+                WaitingForFirstReboot = false
             }, PersistenceEventKind.Verified, "Cycle A persistence verified; cycle B may begin.");
             await SaveJournalAsync(journalPath, journal, cancellationToken);
             return await ExecuteCycleAsync(journalPath, journal, OriginalBrightness, mailbox.ResponseToken, cancellationToken);
@@ -130,17 +167,18 @@ public sealed class ConfigurationPersistenceService(
 
         if (journal.Phase == PersistencePhase.TestValuePersistenceVerified)
         {
-            if (active[BrightnessOffset] != TestBrightness)
-                return await MarkUncertainAsync(journalPath, journal, "Cycle B recovery expected persisted brightness 4 before any write.", cancellationToken);
             return await ExecuteCycleAsync(journalPath, journal, OriginalBrightness, mailbox.ResponseToken, cancellationToken);
         }
 
-        var matches = journal.OriginalActiveConfiguration.SequenceEqual(active);
+        var matches = journal.OriginalActiveConfiguration.SequenceEqual(active) &&
+            PersistenceBaselineContract.ComputeActiveSha256(active) == safetyContext.Baseline.Manifest.ActiveArraySha256 &&
+            active[BrightnessOffset] == OriginalBrightness;
         journal = AddEvent(journal with
         {
             UpdatedAt = clock.UtcNow,
             Phase = matches ? PersistencePhase.Complete : PersistencePhase.ResultUncertain,
             Cycle = matches ? PersistenceCycle.Complete : PersistenceCycle.B,
+            AuthorizationStage = matches ? PersistenceAuthorizationStage.Complete : PersistenceAuthorizationStage.Locked,
             WaitingForSecondReboot = false,
             VerificationResult = matches ? "Brightness 3 and the original active configuration were restored 64/64." : null,
             ResultUncertainReason = matches ? null : "Final active configuration does not match the original 64-register snapshot.",
@@ -158,6 +196,21 @@ public sealed class ConfigurationPersistenceService(
         if (journal.ReservedSaveCount >= FixedSaveBudget)
             return await MarkUncertainAsync(journalPath, journal, "The fixed two-SAVE budget is exhausted.", cancellationToken);
         var tokens = new MailboxTokenAllocator(observedDeviceToken);
+        journal = journal with
+        {
+            UpdatedAt = clock.UtcNow,
+            Phase = journal.Cycle == PersistenceCycle.A ? PersistencePhase.TestValueWriteAuthorized : PersistencePhase.OriginalValueWriteAuthorized,
+            AuthorizationStage = journal.Cycle == PersistenceCycle.A ? PersistenceAuthorizationStage.CycleAWrites : PersistenceAuthorizationStage.CycleBWrites
+        };
+        await SaveJournalAsync(journalPath, journal, cancellationToken);
+        ushort[] activeBeforeApply;
+        try { activeBeforeApply = await ReadActive64Async(cancellationToken); }
+        catch (Exception error) { return await MarkUncertainAsync(journalPath, journal, $"Pre-APPLY readback failed: {error.Message}", cancellationToken); }
+        var expectedBeforeApply = journal.Cycle == PersistenceCycle.A
+            ? safetyContext.Baseline.Manifest.ActiveRegisters
+            : WithBrightness(journal.OriginalActiveConfiguration, TestBrightness);
+        if (!expectedBeforeApply.SequenceEqual(activeBeforeApply))
+            return await MarkUncertainAsync(journalPath, journal, "Pre-APPLY Active configuration does not match the required cycle input.", cancellationToken);
         try
         {
             await device.ApplyBrightnessRamAsync(brightness, tokens, cancellationToken);
@@ -173,7 +226,7 @@ public sealed class ConfigurationPersistenceService(
         try
         {
             applied = await ReadActive64Async(cancellationToken);
-            before = await device.ReadConfigStoreAsync(cancellationToken);
+            before = await ReadStableConfigStoreAsync(cancellationToken);
         }
         catch (Exception error)
         {
@@ -185,6 +238,14 @@ public sealed class ConfigurationPersistenceService(
             !before.ConfigDirty || before.CurrentRevision == before.SavedRevision || ConfigStoreContract.NextSlot(before.ActiveSlot) == 0)
             return await MarkUncertainAsync(journalPath, journal, "ConfigStore pre-SAVE snapshot is not trustworthy.", cancellationToken);
 
+        var cycle = CurrentCycleEvidence(journal) with
+        {
+            ActiveBeforeApply = activeBeforeApply,
+            ActiveAfterApply = applied,
+            SaveBefore = before,
+            MailboxTokens = tokens.Used.ToArray()
+        };
+        journal = SetCurrentCycleEvidence(journal, cycle);
         journal = AddEvent(journal with
         {
             UpdatedAt = clock.UtcNow,
@@ -196,6 +257,15 @@ public sealed class ConfigurationPersistenceService(
         var saveToken = tokens.Allocate();
         while (journal.SaveTokens.Contains(saveToken)) saveToken = tokens.Allocate();
         var reservedTokens = journal.SaveTokens.Append(saveToken).ToArray();
+        cycle = CurrentCycleEvidence(journal) with
+        {
+            SaveBefore = before,
+            MailboxTokens = tokens.Used.ToArray(),
+            SaveToken = saveToken,
+            SaveReservedAtUtc = clock.UtcNow,
+            SaveRequestMayHaveBeenSent = true
+        };
+        journal = SetCurrentCycleEvidence(journal, cycle);
         journal = AddEvent(journal with
         {
             UpdatedAt = clock.UtcNow,
@@ -228,17 +298,48 @@ public sealed class ConfigurationPersistenceService(
 
         var deadline = clock.UtcNow + polling.Timeout;
         string? lastReadError = null;
+        var unstableSamples = 0;
+        var consecutiveConfirmed = 0;
+        ConfigStoreSnapshot? previousConfirmed = null;
         while (clock.UtcNow <= deadline)
         {
             try
             {
                 var current = await device.ReadConfigStoreAsync(cancellationToken);
                 var active = await ReadActive64Async(cancellationToken);
-                journal = journal with { UpdatedAt = clock.UtcNow, PollSnapshots = journal.PollSnapshots.Append(current).ToArray() };
+                var observation = new ConfigStoreObservation(clock.UtcNow, journal.Cycle, current);
+                cycle = CurrentCycleEvidence(journal) with { PollSnapshots = CurrentCycleEvidence(journal).PollSnapshots.Append(observation).ToArray() };
+                journal = SetCurrentCycleEvidence(journal, cycle) with
+                {
+                    UpdatedAt = clock.UtcNow,
+                    PollSnapshots = journal.PollSnapshots.Append(current).ToArray()
+                };
+                if (!current.StatesKnown || !current.StatesConsistent)
+                {
+                    unstableSamples++;
+                    consecutiveConfirmed = 0;
+                    previousConfirmed = null;
+                    await SaveJournalAsync(journalPath, journal, cancellationToken);
+                    if (unstableSamples >= sampling.MaximumAttempts)
+                        return await MarkUncertainAsync(journalPath, journal, "ConfigStore state mirrors remained unknown or inconsistent after bounded read-only resampling.", cancellationToken);
+                    await clock.DelayAsync(sampling.Interval, cancellationToken);
+                    continue;
+                }
+                unstableSamples = 0;
                 var evaluation = ConfigStoreCompletionEvaluator.Evaluate(before, current, expected, active);
                 if (evaluation.Result == ConfigStoreCompletionResult.Confirmed)
                 {
+                    consecutiveConfirmed = current == previousConfirmed ? consecutiveConfirmed + 1 : 1;
+                    previousConfirmed = current;
+                    if (consecutiveConfirmed < sampling.RequiredConsecutiveTerminalSamples)
+                    {
+                        await SaveJournalAsync(journalPath, journal, cancellationToken);
+                        await clock.DelayAsync(sampling.Interval, cancellationToken);
+                        continue;
+                    }
                     var cycleA = journal.Cycle == PersistenceCycle.A;
+                    cycle = CurrentCycleEvidence(journal) with { SaveConfirmed = current };
+                    journal = SetCurrentCycleEvidence(journal, cycle);
                     journal = AddEvent(journal with
                     {
                         Phase = cycleA ? PersistencePhase.TestValueSaveConfirmed : PersistencePhase.OriginalValueSaveConfirmed,
@@ -249,6 +350,7 @@ public sealed class ConfigurationPersistenceService(
                     {
                         UpdatedAt = clock.UtcNow,
                         Phase = cycleA ? PersistencePhase.WaitingForFirstReboot : PersistencePhase.WaitingForSecondReboot,
+                        AuthorizationStage = cycleA ? PersistenceAuthorizationStage.WaitingForFirstReboot : PersistenceAuthorizationStage.WaitingForSecondReboot,
                         WaitingForFirstReboot = cycleA,
                         WaitingForSecondReboot = !cycleA
                     }, PersistenceEventKind.RebootRequired, cycleA
@@ -261,6 +363,8 @@ public sealed class ConfigurationPersistenceService(
                     return await MarkFailedAsync(journalPath, journal, evaluation.Reason, cancellationToken);
                 if (evaluation.Result == ConfigStoreCompletionResult.ResultUncertain)
                     return await MarkUncertainAsync(journalPath, journal, evaluation.Reason, cancellationToken);
+                consecutiveConfirmed = 0;
+                previousConfirmed = null;
                 lastReadError = null;
                 await SaveJournalAsync(journalPath, journal, cancellationToken);
             }
@@ -282,22 +386,26 @@ public sealed class ConfigurationPersistenceService(
 
     private async Task<PersistenceJournal> RecoverReservedSaveAsync(string path, PersistenceJournal journal, CancellationToken cancellationToken)
     {
-        if (journal.SaveBefore is null)
+        var cycle = CurrentCycleEvidence(journal);
+        if (cycle.SaveBefore is null)
             return await MarkUncertainAsync(path, journal, "Reserved SAVE has no trustworthy pre-SAVE ConfigStore snapshot.", cancellationToken);
         try
         {
             var identity = await device.ReadIdentityAsync(cancellationToken);
             ValidateIdentity(identity);
-            var current = await device.ReadConfigStoreAsync(cancellationToken);
+            var current = await ReadStableConfigStoreAsync(cancellationToken);
             var active = await ReadActive64Async(cancellationToken);
-            var evaluation = ConfigStoreCompletionEvaluator.Evaluate(journal.SaveBefore, current, journal.ExpectedActiveConfiguration, active);
+            var evaluation = ConfigStoreCompletionEvaluator.Evaluate(cycle.SaveBefore, current, cycle.ExpectedActiveConfiguration, active);
             if (evaluation.Result == ConfigStoreCompletionResult.Confirmed)
             {
                 var cycleA = journal.Cycle == PersistenceCycle.A;
+                cycle = cycle with { SaveConfirmed = current };
+                journal = SetCurrentCycleEvidence(journal, cycle);
                 var recovered = AddEvent(journal with
                 {
                     UpdatedAt = clock.UtcNow,
                     Phase = cycleA ? PersistencePhase.WaitingForFirstReboot : PersistencePhase.WaitingForSecondReboot,
+                    AuthorizationStage = cycleA ? PersistenceAuthorizationStage.WaitingForFirstReboot : PersistenceAuthorizationStage.WaitingForSecondReboot,
                     SaveConfirmed = current,
                     SaveResult = "SAVE_CONFIRMED_BY_READ_ONLY_RECOVERY",
                     WaitingForFirstReboot = cycleA,
@@ -334,17 +442,70 @@ public sealed class ConfigurationPersistenceService(
             throw new InvalidOperationException("Device identity does not match the fixed Stage 2B persistence contract.");
     }
 
-    private static void ValidatePreflightStore(ConfigStoreSnapshot store)
+    private void ValidateOnSiteGate(DeviceIdentity identity, MailboxSnapshot mailbox, ConfigStoreSnapshot store, ushort[] active)
     {
-        if (store.SchemaVersion != 2 || !store.StatesKnown || !store.StatesConsistent || store.State != ConfigStoreState.Idle)
-            throw new InvalidOperationException("ConfigStore is not in a known, consistent IDLE state.");
+        PersistenceBaselineContract.Validate(safetyContext.Baseline.Manifest);
+        var boundStore = safetyContext.Preflight.ConfigStore;
+        var valid = identity is { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 } &&
+            !mailbox.Busy && !mailbox.Pending && store.SchemaVersion == 2 && store.StatesKnown && store.StatesConsistent &&
+            store.State == ConfigStoreState.Idle && !store.ConfigDirty && store.CurrentRevision == store.SavedRevision &&
+            store.ActiveSlot is 1 or 2 && store.ActiveSlot == boundStore.ActiveSlot &&
+            store.ActiveSequence == boundStore.ActiveSequence && store.CurrentRevision == boundStore.CurrentRevision &&
+            active.SequenceEqual(safetyContext.Baseline.Manifest.ActiveRegisters) &&
+            PersistenceBaselineContract.ComputeActiveSha256(active) == safetyContext.Baseline.Manifest.ActiveArraySha256 &&
+            active[BrightnessOffset] == OriginalBrightness;
+        if (!valid) throw new InvalidOperationException("SAVE pre-write on-site safety gate failed before any write cycle was created.");
     }
+
+    private void ValidateJournalBinding(PersistenceJournal journal)
+    {
+        if (journal.ClientCommit != safetyContext.ClientCommit || journal.BaselineId != safetyContext.Baseline.Manifest.BaselineId ||
+            journal.BaselineSha256 != safetyContext.Baseline.Manifest.ActiveArraySha256 ||
+            journal.BaselineManifestSha256 != safetyContext.Baseline.ManifestSha256 ||
+            journal.BoundPreflightWorkflowId != safetyContext.Preflight.WorkflowId ||
+            journal.PreflightSummarySha256 != safetyContext.Preflight.SummarySha256)
+            throw new InvalidDataException("Persistence journal does not match the trusted baseline and preflight binding.");
+    }
+
+    private async Task<ConfigStoreSnapshot> ReadStableConfigStoreAsync(CancellationToken cancellationToken)
+    {
+        ConfigStoreSnapshot? previous = null;
+        var consecutive = 0;
+        for (var attempt = 0; attempt < sampling.MaximumAttempts; attempt++)
+        {
+            var current = await device.ReadConfigStoreAsync(cancellationToken);
+            if (current.StatesKnown && current.StatesConsistent && current == previous) consecutive++;
+            else consecutive = current.StatesKnown && current.StatesConsistent ? 1 : 0;
+            if (consecutive >= sampling.RequiredConsecutiveTerminalSamples) return current;
+            previous = current;
+            if (attempt + 1 < sampling.MaximumAttempts) await clock.DelayAsync(sampling.Interval, cancellationToken);
+        }
+        throw new InvalidOperationException("ConfigStore did not produce the required consecutive stable snapshots.");
+    }
+
+    private static PersistenceCycleEvidence CurrentCycleEvidence(PersistenceJournal journal) => journal.Cycle switch
+    {
+        PersistenceCycle.A => journal.CycleAEvidence,
+        PersistenceCycle.B => journal.CycleBEvidence ?? throw new InvalidDataException("Cycle B evidence is missing."),
+        _ => throw new InvalidDataException("Completed workflow has no writable cycle.")
+    };
+
+    private static PersistenceJournal SetCurrentCycleEvidence(PersistenceJournal journal, PersistenceCycleEvidence evidence) =>
+        SetCycleEvidence(journal, evidence);
+
+    private static PersistenceJournal SetCycleEvidence(PersistenceJournal journal, PersistenceCycleEvidence evidence) => evidence.Cycle switch
+    {
+        PersistenceCycle.A => journal with { CycleAEvidence = evidence },
+        PersistenceCycle.B => journal with { CycleBEvidence = evidence },
+        _ => throw new InvalidDataException("Invalid persistence evidence cycle.")
+    };
 
     private async Task<PersistenceJournal> MarkUncertainAsync(string path, PersistenceJournal journal, string reason, CancellationToken cancellationToken)
     {
         var updated = AddEvent(journal with
         {
             UpdatedAt = clock.UtcNow, Phase = PersistencePhase.ResultUncertain,
+            AuthorizationStage = PersistenceAuthorizationStage.Locked,
             WaitingForFirstReboot = false, WaitingForSecondReboot = false,
             ResultUncertainReason = reason
         }, PersistenceEventKind.ResultUncertain, reason);
@@ -357,6 +518,7 @@ public sealed class ConfigurationPersistenceService(
         var updated = AddEvent(journal with
         {
             UpdatedAt = clock.UtcNow, Phase = PersistencePhase.Failed,
+            AuthorizationStage = PersistenceAuthorizationStage.Locked,
             WaitingForFirstReboot = false, WaitingForSecondReboot = false,
             SaveResult = reason
         }, PersistenceEventKind.Failed, reason);

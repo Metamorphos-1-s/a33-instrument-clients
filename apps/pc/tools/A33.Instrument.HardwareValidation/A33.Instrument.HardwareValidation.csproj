@@ -1,1 +1,22 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup><ItemGroup><ProjectReference Include="..\..\src\A33.Instrument.Core\A33.Instrument.Core.csproj" /></ItemGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\A33.Instrument.Core\A33.Instrument.Core.csproj" />
+  </ItemGroup>
+  <Target Name="GenerateGitCommitMetadata" BeforeTargets="CoreCompile">
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse HEAD" ConsoleToMSBuild="true" StandardOutputImportance="Low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="A33GitCommit" />
+    </Exec>
+    <WriteLinesToFile File="$(IntermediateOutputPath)GitCommit.g.cs"
+      Lines="using System.Reflection%3B%0A[assembly: AssemblyMetadata(&quot;GitCommit&quot;, &quot;$(A33GitCommit)&quot;)]"
+      Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)GitCommit.g.cs" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -1,6 +1,6 @@
 namespace A33.Instrument.Core;
 
-public sealed record PersistenceHardwareAuthorization(bool Authorized, string? WorkflowId, string? Error);
+public sealed record PersistenceHardwareAuthorization(bool Authorized, string? WorkflowId, string? PreflightWorkflowId, string? Error);
 
 public static class PersistenceHardwareAuthorizationGate
 {
@@ -9,7 +9,7 @@ public static class PersistenceHardwareAuthorizationGate
     private static readonly HashSet<string> AllowedFlags = new(StringComparer.OrdinalIgnoreCase)
     {
         "--authorize-stage2b-persistence", "--confirmation", "--acknowledge-manual-reboots",
-        "--acknowledge-result-uncertain-lockout", "--workflow-id"
+        "--acknowledge-result-uncertain-lockout", "--workflow-id", "--preflight-workflow-id"
     };
 
     public static PersistenceHardwareAuthorization Validate(string[] args)
@@ -19,26 +19,31 @@ public static class PersistenceHardwareAuthorizationGate
         {
             var key = args[i];
             if (!key.StartsWith("--", StringComparison.Ordinal) || !AllowedFlags.Contains(key))
-                return new(false, null, $"Unsupported persistence option: {key}");
-            if (options.ContainsKey(key)) return new(false, null, $"Duplicate persistence option: {key}");
+                return new(false, null, null, $"Unsupported persistence option: {key}");
+            if (options.ContainsKey(key)) return new(false, null, null, $"Duplicate persistence option: {key}");
             if (key is "--authorize-stage2b-persistence" or "--acknowledge-manual-reboots" or "--acknowledge-result-uncertain-lockout")
             {
                 options[key] = "true";
                 continue;
             }
             if (++i >= args.Length || args[i].StartsWith("--", StringComparison.Ordinal))
-                return new(false, null, $"Missing value for {key}.");
+                return new(false, null, null, $"Missing value for {key}.");
             options[key] = args[i];
         }
         if (!options.ContainsKey("--authorize-stage2b-persistence") ||
             !options.ContainsKey("--acknowledge-manual-reboots") ||
             !options.ContainsKey("--acknowledge-result-uncertain-lockout") ||
             options.GetValueOrDefault("--confirmation") != Confirmation)
-            return new(false, null, "Complete Stage 2B persistence authorization is required.");
+            return new(false, null, null, "Complete Stage 2B persistence authorization is required.");
         var workflowId = options.GetValueOrDefault("--workflow-id");
+        var preflightWorkflowId = options.GetValueOrDefault("--preflight-workflow-id");
         if (workflowId is not null && !Guid.TryParse(workflowId, out _))
-            return new(false, null, "Workflow ID must be a GUID.");
-        return new(true, workflowId, null);
+            return new(false, null, null, "Workflow ID must be a GUID.");
+        if (preflightWorkflowId is not null && !Guid.TryParse(preflightWorkflowId, out _))
+            return new(false, null, null, "Preflight workflow ID must be a GUID.");
+        if ((workflowId is null) == (preflightWorkflowId is null))
+            return new(false, null, null, "Specify exactly one preflight workflow ID for start or persistence workflow ID for recovery.");
+        return new(true, workflowId, preflightWorkflowId, null);
     }
 
     public static async Task<int> ExecuteAfterAuthorizationAsync(string[] args, Func<PersistenceHardwareAuthorization, Task<int>> authorizedAction)
