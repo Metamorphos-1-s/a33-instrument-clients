@@ -2,6 +2,7 @@ using System.Text.Json;
 using A33.Instrument.Core;
 
 var command = args.FirstOrDefault(a => !a.StartsWith("--"))?.ToLowerInvariant() ?? "help";
+if (command == "preflight") return await A33.Instrument.HardwareValidation.StrictPreflightRunner.RunAsync(args);
 var options = Parse(args);
 if (command is "help" or "--help") { Console.WriteLine("preflight | cancel-test | apply-restore-test | monitor | save-test (not authorized)"); return 0; }
 if (command == "save-test") { Console.Error.WriteLine("SAVE_NOT_AUTHORIZED"); return 12; }
