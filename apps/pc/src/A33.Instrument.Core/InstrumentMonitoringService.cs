@@ -5,7 +5,7 @@ using A33.Instrument.Protocol;
 
 namespace A33.Instrument.Core;
 
-public sealed class InstrumentMonitoringService(IModbusTransportFactory? transportFactory = null) : IAsyncDisposable
+public sealed class InstrumentMonitoringService(IModbusTransportFactory? transportFactory = null) : IAsyncDisposable, IReadOnlyRegisterAccess
 {
     private readonly IModbusTransportFactory factory = transportFactory ?? new ModbusTransportFactory();
     private readonly SemaphoreSlim lifecycle = new(1,1);private readonly SemaphoreSlim commandGate=new(1,1);private IModbusTransport? transport;private ReadOnlyModbusClient? client;private MonitoringOptions? options;private CancellationTokenSource? monitorCancellation;private Task? monitorTask;private long generation;private bool commandInProgress;
@@ -55,6 +55,8 @@ public sealed class InstrumentMonitoringService(IModbusTransportFactory? transpo
         Snapshot=Snapshot with{DisplayLocked=displayValues[RegisterMap.Get("display_locked").Address-display.Address]!=0,ConfigDirty=dirtyValue,FaultMask=faultValue,CheckweighState=alarmValues[RegisterMap.Get("checkweigh_state").Address-alarmFirst.Address]};Updated?.Invoke(this,EventArgs.Empty);
     }
     private async Task<ushort[]> ReadAsync(ushort address,ushort count,CancellationToken token){if(client is null)throw new InvalidOperationException("Client is not connected.");Diagnostics.RequestStarted();var result=await client.ReadHoldingAsync(address,count,token);if(client.LastExchange is not null)Diagnostics.ExchangeCompleted(client.LastExchange);return result;}
+    public Task<ushort[]> ReadHoldingAsync(ushort address, ushort count, CancellationToken cancellationToken = default) =>
+        WithCommandExclusiveAsync(_ => ReadAsync(address, count, cancellationToken), cancellationToken);
     internal void ReplaceSnapshot(InstrumentSnapshot snapshot){Snapshot=snapshot;Updated?.Invoke(this,EventArgs.Empty);}
     internal async Task<T> WithCommandExclusiveAsync<T>(Func<ReadOnlyModbusClient,Task<T>> operation,CancellationToken token=default){if(State!=MonitoringConnectionState.Monitoring||Snapshot is null||IsStale||MapVersion!=RegisterMap.Version)throw new InvalidOperationException("Runtime operation requires a fresh compatible monitoring connection.");await commandGate.WaitAsync(token);commandInProgress=true;try{if(client is null)throw new InvalidOperationException("Client is not connected.");return await operation(client);}finally{commandInProgress=false;commandGate.Release();}}
 

@@ -1,16 +1,206 @@
 using A33.Instrument.Protocol;
+
 namespace A33.Instrument.Core;
-public sealed class ConfigurationTransactionService(InstrumentMonitoringService monitoring, ushort initialToken = 3)
+
+public sealed class ConfigurationTransactionService
 {
- private readonly SemaphoreSlim gate=new(1,1);private ConfigurationSnapshot? snapshot;private ushort token=initialToken;private ushort? activeToken;private bool validated;
- public ConfigurationTransactionState State{get;private set;}=ConfigurationTransactionState.Disconnected;public ConfigurationSnapshot? Snapshot=>snapshot;public IReadOnlyList<ConfigurationDifference> Differences=>snapshot?.Fields.Where(f=>f.IsDirty).Select(f=>new ConfigurationDifference(f.Key,Format(f.Current),Format(f.Edited),f.Definition.Unit,f.Definition.RequiresReconnect)).ToArray()??[];public event EventHandler? StateChanged;
- public async Task<ConfigurationSnapshot> RefreshAsync(CancellationToken ct=default){await WaitFresh(ct);await gate.WaitAsync(ct);try{var v=new ushort[64];await monitoring.WithCommandExclusiveAsync(async c=>{for(var i=0;i<4;i++){var x=await c.ReadHoldingAsync((ushort)(0x0100+i*16),16,ct);x.CopyTo(v,i*16);}return 0;},ct);var fs=ConfigurationContract.EditableFields.Select(d=>new ConfigurationField(d.Key,d.Address,Slice(v,d.Address-0x0100,d.Width),Slice(v,d.Address-0x0100,d.Width),d)).ToArray();snapshot=new ConfigurationSnapshot(monitoring.MapVersion,0,v,v.ToArray(),fs,DateTimeOffset.Now);State=ConfigurationTransactionState.Ready;Notify();return snapshot;}finally{gate.Release();}}
- public void Edit(string key,long value){if(activeToken.HasValue)throw new InvalidOperationException("Cancel active transaction before editing.");if(snapshot is null)throw new InvalidOperationException("Refresh required.");var f=snapshot.Fields.First(x=>x.Key==key);if(value<f.Definition.Minimum||value>f.Definition.Maximum)throw new ArgumentOutOfRangeException(nameof(value));var e=(ushort[])f.Edited.Clone();e[0]=(ushort)value;snapshot=snapshot with{Fields=snapshot.Fields.Select(x=>x.Key==key?x with{Edited=e}:x).ToArray()};State=ConfigurationTransactionState.Dirty;Notify();}
- public Task BeginAsync(CancellationToken ct=default)=>ValidateDeviceAsync(ct);public Task ValidateAsync(CancellationToken ct=default)=>ValidateDeviceAsync(ct);
- private async Task ValidateDeviceAsync(CancellationToken ct){if(snapshot is null||!snapshot.Fields.Any(f=>f.IsDirty))throw new InvalidOperationException("No configuration changes.");await gate.WaitAsync(ct);try{if(activeToken.HasValue)throw new InvalidOperationException("Transaction already active.");activeToken=Next();var r=await Submit(9,activeToken.Value,ct);if(r!=0)throw new InvalidOperationException($"BEGIN result {r}");foreach(var f in snapshot.Fields.Where(f=>f.IsDirty))await monitoring.WithCommandExclusiveAsync(c=>c.WriteMultipleAsync((ushort)(f.Address+0x40),f.Edited,ct),ct);activeToken=Next();r=await Submit(10,activeToken.Value,ct);if(r!=0)throw new InvalidOperationException($"VALIDATE result {r}");validated=true;State=ConfigurationTransactionState.AppliedRam;Notify();}catch{State=ConfigurationTransactionState.ResultUncertain;Notify();throw;}finally{gate.Release();}}
- public async Task<CommandExecutionState> ApplyRamAsync(bool save,CancellationToken ct=default){if(save)throw new InvalidOperationException("SAVE is not authorized by this service path.");if(!validated||!activeToken.HasValue)throw new InvalidOperationException("Validate required.");await gate.WaitAsync(ct);try{activeToken=Next();var r=await Submit(11,activeToken.Value,ct);if(r!=0)throw new InvalidOperationException($"APPLY result {r}");activeToken=null;validated=false;await RefreshCore(ct);State=ConfigurationTransactionState.AppliedRam;Notify();return CommandExecutionState.Succeeded;}finally{gate.Release();}}
- public async Task CancelAsync(CancellationToken ct=default){await gate.WaitAsync(ct);try{if(!activeToken.HasValue)throw new InvalidOperationException("No active transaction.");activeToken=Next();var r=await Submit(12,activeToken.Value,ct);if(r!=0)throw new InvalidOperationException($"CANCEL result {r}");activeToken=null;validated=false;await RefreshCore(ct);}finally{gate.Release();}}
- private async Task RefreshCore(CancellationToken ct){var v=new ushort[64];await monitoring.WithCommandExclusiveAsync(async c=>{for(var i=0;i<4;i++){var x=await c.ReadHoldingAsync((ushort)(0x0100+i*16),16,ct);x.CopyTo(v,i*16);}return 0;},ct);var fs=ConfigurationContract.EditableFields.Select(d=>new ConfigurationField(d.Key,d.Address,Slice(v,d.Address-0x0100,d.Width),Slice(v,d.Address-0x0100,d.Width),d)).ToArray();snapshot=new ConfigurationSnapshot(monitoring.MapVersion,0,v,v.ToArray(),fs,DateTimeOffset.Now);State=ConfigurationTransactionState.Ready;Notify();}
- private async Task<ushort> Submit(ushort id,ushort t,CancellationToken ct){var w=new ushort[12];w[0]=t;w[1]=id;w[11]=0xA55A;return await monitoring.WithCommandExclusiveAsync(async c=>{await c.WriteMultipleAsync(0x0040,w,ct);var r=await c.ReadHoldingAsync(0x004C,12,ct);if(r[0]!=t||r[3]!=id)throw new InvalidOperationException("Configuration response token/command mismatch.");return r[1];},ct);}
- private async Task WaitFresh(CancellationToken ct){using var x=CancellationTokenSource.CreateLinkedTokenSource(ct);x.CancelAfter(TimeSpan.FromSeconds(10));while(monitoring.Snapshot is null||monitoring.IsStale)await Task.Delay(25,x.Token);}private ushort Next(){var x=token++;return x==0?token++:x;}private void Notify()=>StateChanged?.Invoke(this,EventArgs.Empty);private static ushort[] Slice(ushort[] v,int o,int n)=>v.Skip(o).Take(n).ToArray();private static string Format(ushort[] v)=>v.Length==1?v[0].ToString():string.Join(" ",v.Select(x=>$"0x{x:X4}"));
+    private readonly InstrumentMonitoringService monitoring;
+    private readonly SemaphoreSlim gate = new(1, 1);
+    private MailboxTokenAllocator? tokens;
+    private ConfigurationSnapshot? snapshot;
+    private ushort? activeToken;
+    private bool validated;
+    private bool saveSent;
+
+    public ConfigurationTransactionService(InstrumentMonitoringService monitoring, MailboxTokenAllocator? tokens = null)
+    {
+        this.monitoring = monitoring;
+        this.tokens = tokens;
+    }
+
+    public ConfigurationTransactionState State { get; private set; } = ConfigurationTransactionState.Disconnected;
+    public ConfigurationSnapshot? Snapshot => snapshot;
+    public IReadOnlyCollection<ushort> UsedTokens => tokens?.Used ?? [];
+    public IReadOnlyList<ConfigurationDifference> Differences => snapshot?.Fields.Where(f => f.IsDirty)
+        .Select(f => new ConfigurationDifference(f.Key, Format(f.Current), Format(f.Edited), f.Definition.Unit, f.Definition.RequiresReconnect)).ToArray() ?? [];
+    public event EventHandler? StateChanged;
+
+    public async Task<ConfigurationSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        await WaitFreshAsync(cancellationToken);
+        await gate.WaitAsync(cancellationToken);
+        try { return await RefreshCoreAsync(cancellationToken); }
+        finally { gate.Release(); }
+    }
+
+    public void Edit(string key, long value)
+    {
+        if (activeToken.HasValue) throw new InvalidOperationException("Cancel active transaction before editing.");
+        if (snapshot is null) throw new InvalidOperationException("Refresh required.");
+        var field = snapshot.Fields.First(x => x.Key == key);
+        if (value < field.Definition.Minimum || value > field.Definition.Maximum) throw new ArgumentOutOfRangeException(nameof(value));
+        var edited = (ushort[])field.Edited.Clone();
+        edited[0] = (ushort)value;
+        snapshot = snapshot with { Fields = snapshot.Fields.Select(x => x.Key == key ? x with { Edited = edited } : x).ToArray() };
+        State = ConfigurationTransactionState.Dirty;
+        Notify();
+    }
+
+    public Task BeginAsync(CancellationToken cancellationToken = default) => ValidateAsync(cancellationToken);
+
+    public async Task ValidateAsync(CancellationToken cancellationToken = default)
+    {
+        if (snapshot is null || !snapshot.Fields.Any(f => f.IsDirty)) throw new InvalidOperationException("No configuration changes.");
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (activeToken.HasValue) throw new InvalidOperationException("Transaction already active.");
+            State = ConfigurationTransactionState.Validating;
+            Notify();
+            activeToken = await NextTokenAsync(cancellationToken);
+            var response = await SubmitAsync(9, activeToken.Value, cancellationToken);
+            if (response.ResultCode != 0) throw new InvalidOperationException($"BEGIN result {response.ResultCode}");
+            foreach (var field in snapshot.Fields.Where(f => f.IsDirty))
+                await monitoring.WithCommandExclusiveAsync(c => c.WriteMultipleAsync((ushort)(field.Address + 0x40), field.Edited, cancellationToken), cancellationToken);
+            activeToken = await NextTokenAsync(cancellationToken);
+            response = await SubmitAsync(10, activeToken.Value, cancellationToken);
+            if (response.ResultCode != 0) throw new InvalidOperationException($"VALIDATE result {response.ResultCode}");
+            validated = true;
+            State = ConfigurationTransactionState.AppliedRam;
+            Notify();
+        }
+        catch (AmbiguousDeviceCommandException)
+        {
+            State = ConfigurationTransactionState.ResultUncertain;
+            Notify();
+            throw;
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task<CommandExecutionState> ApplyRamAsync(bool save, CancellationToken cancellationToken = default)
+    {
+        if (save) throw new InvalidOperationException("SAVE is only available through ConfigurationPersistenceService.");
+        if (!validated || !activeToken.HasValue) throw new InvalidOperationException("Validate required.");
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            State = ConfigurationTransactionState.Applying;
+            Notify();
+            activeToken = await NextTokenAsync(cancellationToken);
+            var response = await SubmitAsync(11, activeToken.Value, cancellationToken);
+            if (response.ResultCode != 0) throw new InvalidOperationException($"APPLY result {response.ResultCode}");
+            activeToken = null;
+            validated = false;
+            await RefreshCoreAsync(cancellationToken);
+            State = ConfigurationTransactionState.AppliedRam;
+            Notify();
+            return CommandExecutionState.Succeeded;
+        }
+        catch (AmbiguousDeviceCommandException)
+        {
+            State = ConfigurationTransactionState.ResultUncertain;
+            Notify();
+            throw;
+        }
+        finally { gate.Release(); }
+    }
+
+    public async Task CancelAsync(CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!activeToken.HasValue) throw new InvalidOperationException("No active transaction.");
+            activeToken = await NextTokenAsync(cancellationToken);
+            var response = await SubmitAsync(12, activeToken.Value, cancellationToken);
+            if (response.ResultCode != 0) throw new InvalidOperationException($"CANCEL result {response.ResultCode}");
+            activeToken = null;
+            validated = false;
+            await RefreshCoreAsync(cancellationToken);
+        }
+        catch (AmbiguousDeviceCommandException)
+        {
+            State = ConfigurationTransactionState.ResultUncertain;
+            Notify();
+            throw;
+        }
+        finally { gate.Release(); }
+    }
+
+    internal async Task<MailboxCommandReceipt> SendSaveOnceAsync(ushort token, CancellationToken cancellationToken = default)
+    {
+        if (saveSent) throw new InvalidOperationException("SAVE was already sent by this transaction service instance.");
+        saveSent = true;
+        State = ConfigurationTransactionState.Saving;
+        Notify();
+        return await SubmitAsync(13, token, cancellationToken);
+    }
+
+    private async Task<ConfigurationSnapshot> RefreshCoreAsync(CancellationToken cancellationToken)
+    {
+        var values = new ushort[64];
+        await monitoring.WithCommandExclusiveAsync(async client =>
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                var chunk = await client.ReadHoldingAsync((ushort)(0x0100 + i * 16), 16, cancellationToken);
+                chunk.CopyTo(values, i * 16);
+            }
+            return 0;
+        }, cancellationToken);
+        var fields = ConfigurationContract.EditableFields.Select(definition =>
+            new ConfigurationField(definition.Key, definition.Address,
+                Slice(values, definition.Address - 0x0100, definition.Width),
+                Slice(values, definition.Address - 0x0100, definition.Width), definition)).ToArray();
+        snapshot = new ConfigurationSnapshot(monitoring.MapVersion, 0, values, values.ToArray(), fields, DateTimeOffset.Now);
+        State = ConfigurationTransactionState.Ready;
+        Notify();
+        return snapshot;
+    }
+
+    private async Task<MailboxCommandReceipt> SubmitAsync(ushort commandId, ushort token, CancellationToken cancellationToken)
+    {
+        var words = new ushort[12];
+        words[0] = token;
+        words[1] = commandId;
+        words[11] = 0xA55A;
+        try
+        {
+            return await monitoring.WithCommandExclusiveAsync(async client =>
+            {
+                await client.WriteMultipleAsync(0x0040, words, cancellationToken);
+                var response = await client.ReadHoldingAsync(0x004C, 12, cancellationToken);
+                if (response[0] != token || response[3] != commandId)
+                    throw new AmbiguousDeviceCommandException("Mailbox response token or command mismatch after a write.");
+                return new MailboxCommandReceipt(response[0], response[3], response[1]);
+            }, cancellationToken);
+        }
+        catch (AmbiguousDeviceCommandException) { throw; }
+        catch (Exception error)
+        {
+            throw new AmbiguousDeviceCommandException($"Command {commandId} may have been sent but its result is unknown.", error);
+        }
+    }
+
+    private async Task<ushort> NextTokenAsync(CancellationToken cancellationToken)
+    {
+        if (tokens is null)
+        {
+            var mailbox = await monitoring.ReadHoldingAsync(ConfigStoreContract.MailboxResponseAddress, ConfigStoreContract.MailboxResponseLength, cancellationToken);
+            tokens = new MailboxTokenAllocator(mailbox[0]);
+        }
+        return tokens.Allocate();
+    }
+
+    private async Task WaitFreshAsync(CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (monitoring.Snapshot is null || monitoring.IsStale) await Task.Delay(25, timeout.Token);
+    }
+
+    private void Notify() => StateChanged?.Invoke(this, EventArgs.Empty);
+    private static ushort[] Slice(ushort[] values, int offset, int count) => values.Skip(offset).Take(count).ToArray();
+    private static string Format(ushort[] values) => values.Length == 1 ? values[0].ToString() : string.Join(" ", values.Select(x => $"0x{x:X4}"));
 }

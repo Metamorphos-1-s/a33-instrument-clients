@@ -5,8 +5,9 @@ var command = args.FirstOrDefault(a => !a.StartsWith("--"))?.ToLowerInvariant() 
 if (command == "apply-restore-test") return await A33.Instrument.HardwareValidation.ApplyRestoreRunner.RunAsync(args);
 if (command == "recovery-cancel") return await A33.Instrument.HardwareValidation.RecoveryCancelRunner.RunAsync(args);
 if (command == "preflight") return await A33.Instrument.HardwareValidation.StrictPreflightRunner.RunAsync(args);
+if (command == "persistence-brightness-cycle") return await A33.Instrument.HardwareValidation.PersistenceHardwareRunner.RunAsync(args);
 var options = Parse(args);
-if (command is "help" or "--help") { Console.WriteLine("preflight | cancel-test | apply-restore-test | monitor | save-test (not authorized)"); return 0; }
+if (command is "help" or "--help") { Console.WriteLine("preflight | cancel-test | apply-restore-test | monitor | save-test (not authorized) | persistence-brightness-cycle (explicit authorization required)"); return 0; }
 if (command == "save-test") { Console.Error.WriteLine("SAVE_NOT_AUTHORIZED"); return 12; }
 var output = Get("output", "");
 if (command is "cancel-test" or "apply-restore-test")

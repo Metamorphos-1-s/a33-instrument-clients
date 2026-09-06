@@ -11,6 +11,18 @@ $results = @($ble.resultCodes.PSObject.Properties.Value); if (($results | Sort-O
 function Test-Crc($hex) { $list=[System.Collections.Generic.List[byte]]::new(); for($k=0;$k -lt $hex.Length;$k+=2){$list.Add([Convert]::ToByte($hex.Substring($k,2),16))}; $bytes=$list.ToArray(); if($bytes.Length -lt 14){return $false}; $last=$bytes.Length-1; $lo=$bytes[$last-1]; $hi=$bytes[$last]; $wire=[int]$lo + ([int]$hi * 256); $crc=0xffff; for($i=0;$i -lt ($bytes.Length-2);$i++){ $crc=$crc -bxor $bytes[$i]; for($j=0;$j -lt 8;$j++){ $crc=if(($crc -band 1)-ne 0){($crc -shr 1)-bxor 0xa001}else{$crc -shr 1} } }; return (($crc -band 0xffff) -eq $wire) }
 $ranges = @{}
 foreach($r in $map){ for($i=0;$i -lt [int]$r.register_count;$i++){ $a=[int]$r.address+$i; if($ranges.ContainsKey($a)){ throw "register overlap at $a" }; $ranges[$a]=$r.name } }
+$required = @{
+  storage_state_diag = @(0x0030,1); config_dirty = @(0x0032,1);
+  current_revision = @(0x0033,2); saved_revision = @(0x0035,2);
+  command_mailbox_response = @(0x004c,12); storage_active_slot = @(0x01c1,1);
+  storage_active_sequence = @(0x01c2,2); storage_state = @(0x01c4,1)
+}
+foreach($entry in $required.GetEnumerator()){
+  $definition = $map | Where-Object name -eq $entry.Key
+  if($null -eq $definition -or [int]$definition.address -ne $entry.Value[0] -or [int]$definition.register_count -ne $entry.Value[1]){
+    throw "ConfigStore contract mismatch: $($entry.Key)"
+  }
+}
 if ($goldenBle.frames.Count -lt 3 -or $goldenModbus.tcp.mapVersionRequest -ne '0001000000060103000e0001') { throw 'golden vectors incomplete' }
 foreach($frame in $goldenBle.frames){if(-not (Test-Crc $frame.hex)){throw "BLE golden CRC invalid: $($frame.name)"}}
 Write-Output "Validated $($map.Count) register definitions, no overlaps; BLE/Modbus golden contracts parsed."

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using A33.Instrument.Core;
 using A33.Instrument.Protocol;
@@ -9,16 +8,103 @@ public static class StrictPreflightRunner
 {
     public static async Task<int> RunAsync(string[] args)
     {
-        var output = Get(args, "output", "Results/pc_stage2b_hw/tcp_strict_preflight.json"); var started = DateTimeOffset.Now; var result = new Dictionary<string, object?> { ["schema_version"] = 1, ["tool_version"] = "strict-1", ["started_at"] = started, ["client_commit"] = "0fb02a7", ["stm32_commit"] = "71a6124", ["command"] = "preflight", ["transport"] = "tcp", ["endpoint"] = "192.168.1.100:502", ["unit_id"] = 1, ["fc06_requests"] = 0, ["fc16_requests"] = 0, ["mailbox_write_requests"] = 0, ["save_requests"] = 0, ["total_write_requests"] = 0 };
+        var root = Get(args, "output-root", "Results/pc_stage2b_hw");
+        var workflowId = Guid.NewGuid().ToString("D");
+        var outputDirectory = PersistenceEvidenceDirectory.CreateUnique(root, workflowId, DateTimeOffset.UtcNow);
+        var output = Path.Combine(outputDirectory, "preflight.json");
+        StrictPreflightReport? report = null;
+        string? failure = null;
+        var connectionCount = 0;
+        await using var access = new TcpPreflightRegisterAccess("192.168.1.100", 502, 1, TimeSpan.FromSeconds(2));
         try
         {
-            await using var transport = new ModbusTcpTransport("192.168.1.100", 502); await transport.OpenAsync(CancellationToken.None);
-            var client = new ReadOnlyModbusClient(transport, 1, TimeSpan.FromSeconds(2)); var sw = Stopwatch.StartNew(); var first = await ReadConfigAsync(client, 0x0100); var staging = await ReadConfigAsync(client, 0x0140); var mailbox = await client.ReadHoldingAsync(0x004C, 12); var second = await ReadConfigAsync(client, 0x0100); var readonlySuccess = 0; for (var i = 0; i < 100; i++) { await client.ReadHoldingAsync(0, 1); readonlySuccess++; }
-            result["firmware_version"] = (await client.ReadHoldingAsync(15, 1))[0]; result["map_version"] = (await client.ReadHoldingAsync(14, 1))[0]; result["snapshot_received"] = true; result["snapshot_wait_ms"] = sw.ElapsedMilliseconds; result["active_snapshot_1"] = first; result["active_snapshot_2"] = second; result["staging_snapshot"] = staging; result["mailbox"] = mailbox; result["active_snapshots_equal"] = first.SequenceEqual(second); result["active_register_count"] = first.Length; result["staging_register_count"] = staging.Length; result["brightness_value"] = first[22]; result["brightness_active_address"] = "0x0116"; result["brightness_staging_address"] = "0x0156"; result["mailbox_busy"] = mailbox[2] == 1; result["mailbox_pending"] = mailbox[2] != 0; result["readonly_requested"] = 100; result["readonly_succeeded"] = readonlySuccess; result["fc03_requests"] = 8 + 100; result["timeouts"] = 0; result["mbap_errors"] = 0; result["tid_errors"] = 0; result["unit_errors"] = 0; result["modbus_exceptions"] = 0; result["bad_frames"] = 0; result["failure_stage"] = null; result["final_status"] = first.Length == 64 && staging.Length == 64 && first.SequenceEqual(second) && first[22] == 3 && readonlySuccess == 100 ? "PASS" : "PREFLIGHT_INCOMPLETE"; result["exit_code"] = result["final_status"]!.ToString() == "PASS" ? 0 : 14;
+            connectionCount++;
+            await access.OpenAsync(CancellationToken.None);
+            report = await new StrictPreflightService(access).RunAsync();
         }
-        catch (Exception error) { result["final_status"] = "FAIL"; result["failure_stage"] = "readonly_preflight"; result["failure_reason"] = error.Message; result["exit_code"] = 6; }
-        result["completed_at"] = DateTimeOffset.Now; result["duration_ms"] = (DateTimeOffset.Now - started).TotalMilliseconds; var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }); Console.WriteLine(json); await File.WriteAllTextAsync(output, json); return (int)result["exit_code"]!;
+        catch (Exception error) { failure = error.Message; }
+
+        var result = new
+        {
+            schema_version = 2,
+            tool_version = "strict-2",
+            workflow_id = workflowId,
+            client_commit = "BUILD_FROM_CURRENT_CHECKOUT",
+            stm32_commit = ConfigurationPersistenceService.FixedStm32Commit,
+            command = "preflight",
+            transport = "tcp",
+            endpoint = "192.168.1.100:502",
+            connection_count = connectionCount,
+            fc03_requests = access.Fc03Requests,
+            fc06_requests = access.Fc06Requests,
+            fc16_requests = access.Fc16Requests,
+            mailbox_write_requests = access.MailboxWriteRequests,
+            save_requests = access.SaveRequests,
+            errors = access.Errors,
+            final_status = report?.Passed == true ? "PASS" : "FAIL",
+            failure_reason = failure ?? report?.FailureReason,
+            report
+        };
+        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+        Console.WriteLine(json);
+        await File.WriteAllTextAsync(output, json);
+        return report?.Passed == true ? 0 : 6;
     }
-    private static async Task<ushort[]> ReadConfigAsync(ReadOnlyModbusClient client, ushort start) { var all = new ushort[64]; for (var i = 0; i < 4; i++) (await client.ReadHoldingAsync((ushort)(start + i * 16), 16)).CopyTo(all, i * 16); return all; }
-    private static string Get(string[] args, string key, string fallback) { for (var i=0;i<args.Length-1;i++) if(args[i].Equals("--"+key,StringComparison.OrdinalIgnoreCase)) return args[i+1]; return fallback; }
+
+    private static string Get(string[] args, string key, string fallback)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+            if (args[i].Equals("--" + key, StringComparison.OrdinalIgnoreCase)) return args[i + 1];
+        return fallback;
+    }
+
+    private sealed class TcpPreflightRegisterAccess(string host, int port, byte unitId, TimeSpan timeout) : ITrackedReadOnlyRegisterAccess, IAsyncDisposable
+    {
+        private readonly ModbusTcpTransport transport = new(host, port);
+        private ReadOnlyModbusClient? client;
+        private long timeouts, crcErrors, mbapErrors, tidErrors, unitErrors, exceptions, badFrames;
+
+        public WordOrder WordOrder { get; private set; } = WordOrder.HighWordFirst;
+        public byte UnitId => unitId;
+        public long Fc03Requests { get; private set; }
+        public long Fc06Requests { get; private set; }
+        public long Fc16Requests { get; private set; }
+        public long MailboxWriteRequests { get; private set; }
+        public long SaveRequests { get; private set; }
+        public PreflightErrorCounters Errors => new(timeouts, crcErrors, mbapErrors, tidErrors, unitErrors, exceptions, badFrames);
+
+        public async Task OpenAsync(CancellationToken cancellationToken)
+        {
+            await transport.OpenAsync(cancellationToken);
+            client = new ReadOnlyModbusClient(transport, unitId, timeout);
+            var order = await ReadHoldingAsync(0x0103, 1, cancellationToken);
+            WordOrder = order[0] switch { 0 => WordOrder.HighWordFirst, 1 => WordOrder.LowWordFirst, _ => throw new InvalidDataException("Unknown Modbus word order.") };
+        }
+
+        public async Task<ushort[]> ReadHoldingAsync(ushort address, ushort count, CancellationToken cancellationToken = default)
+        {
+            Fc03Requests++;
+            try { return await (client ?? throw new InvalidOperationException("Preflight transport is not open.")).ReadHoldingAsync(address, count, cancellationToken); }
+            catch (Exception error)
+            {
+                switch (error)
+                {
+                    case OperationCanceledException: timeouts++; break;
+                    case ModbusExceptionResponse: exceptions++; break;
+                    case ModbusFrameException frame when frame.Error == ModbusFrameError.Crc: crcErrors++; break;
+                    case ModbusFrameException frame when frame.Error == ModbusFrameError.TransactionId: tidErrors++; break;
+                    case ModbusFrameException frame when frame.Error == ModbusFrameError.ProtocolId: mbapErrors++; break;
+                    case ModbusFrameException frame when frame.Error == ModbusFrameError.UnitId: unitErrors++; break;
+                    default: badFrames++; break;
+                }
+                throw;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await transport.CloseAsync();
+            await transport.DisposeAsync();
+        }
+    }
 }

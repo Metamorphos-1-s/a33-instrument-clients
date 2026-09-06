@@ -1,60 +1,137 @@
 # PC Client Stage 2B Configuration Transactions
 
-## Current Status
+## Current status
 
-This branch contains the safe configuration transaction core and WPF
-configuration validation is not run. The repository's actual Stage 2A record
-has RS232 skipped, so Stage 2B remains software-only and hardware-pending.
+```text
+PC Client Stage 2B RAM TRANSACTIONS CODE COMPLETE
+PC Client Stage 2B PERSISTENCE SOFTWARE READY FOR READ-ONLY PREFLIGHT
+Real SAVE and reboot persistence validation NOT RUN
+```
 
-Baseline:
+RS232 Stage 2B configuration transactions:
 
-- Client Stage 2A: `b61dabd`
-- STM32 fixed firmware: `71a6124`
-- Map: `0x0104`
+```text
+NOT RUN - intentionally excluded from authorized Stage 2B scope
+```
 
-## Scope Implemented
+The fixed firmware contract is STM32 commit
+`71a61249645bff6249286ac801d7f468786cfe85`, firmware `0x050A`, schema `2`,
+and Modbus map `0x0104`. No real SAVE or device reboot was performed while
+closing the persistence software path.
 
-`ConfigurationTransactionService` provides a serialized refresh/edit/apply
-state model with immutable active snapshots, field-level differences, local
-range checks, device token/command matching, and `RESULT_UNCERTAIN` handling
-after a write may have been sent. The service reads the complete active range
-`0x0100-0x013F` and exposes only a conservative non-calibration whitelist:
-brightness, startup auto-zero enable, and profile filter/stability fields.
+## Fixed workflow
 
-The device transaction command IDs are taken from the fixed firmware mailbox:
-BEGIN `9`, VALIDATE `10`, APPLY RAM `11`, CANCEL `12`, SAVE `13`. Calibration,
-factory reset, communication parameters, Slave ID, and unknown fields are not
-exposed. SAVE is never automatic.
+The only persistence workflow exposed by the hardware-validation tool is the
+fixed brightness sequence below. Register addresses, values, SAVE count, and
+reboot behavior are not command-line options.
 
-The brightness field is active register `0x0116`, staging register `0x0156`,
-one unsigned register, and the fixed firmware range is `0-7` (not `0-255`).
-This range is enforced by `ConfigEdit_SetIntegerField` and
-`ConfigEdit_Validate` in STM32 commit `71a6124`.
+1. Read identity, Mailbox, ConfigStore, and the complete 64-register active configuration.
+2. Require active brightness `3` at `0x0116`.
+3. BEGIN, stage brightness `4` at `0x0156`, VALIDATE, and APPLY RAM.
+4. Reserve one SAVE in the atomic journal, then send command `13` exactly once.
+5. Confirm persistence from the public register invariants and stop at `WAITING_FOR_FIRST_REBOOT`.
+6. After a manual reboot, read identity and the device's actual Mailbox token before any write, then verify brightness `4`.
+7. Repeat the guarded cycle for brightness `3` and stop at `WAITING_FOR_SECOND_REBOOT`.
+8. After the second manual reboot, read the Mailbox token again and verify the final active configuration matches the original snapshot 64/64.
 
-## Hardware Gate
+The immutable SAVE budget is `2`. SAVE is never retried, and the software never
+reboots a device. A new non-zero token is allocated for every BEGIN, VALIDATE,
+APPLY, CANCEL, and SAVE command. Token `0` is skipped, tokens do not repeat in a
+process, SAVE tokens do not repeat across recovered processes, and token state
+is rebuilt from the device after each reboot.
 
-No configuration write, Apply RAM, SAVE, communication-parameter switch, or
-configuration hardware evidence has been executed in this branch. TCP and
-RS485 Stage 2A runtime evidence remains separate. RS232 was explicitly skipped
-by the user and is not treated as PASS or WAIVED here.
+## Public ConfigStore contract
 
-## Stage 2B-P TCP preflight
+| Field | Address | Width |
+|---|---:|---:|
+| ConfigStore state mirror 1 | `0x0030` | 1 |
+| `config_dirty` | `0x0032` | 1 |
+| current revision | `0x0033-0x0034` | 2 |
+| saved revision | `0x0035-0x0036` | 2 |
+| Mailbox response | `0x004C-0x0057` | 12 |
+| storage schema | `0x01C0` | 1 |
+| active slot | `0x01C1` | 1 |
+| active sequence | `0x01C2-0x01C3` | 2 |
+| ConfigStore state mirror 2 | `0x01C4` | 1 |
 
-The current TCP device at `192.168.1.100:502`, Unit 1, reports Map `0x0104`
-and firmware `0x050A`. Two complete active-configuration reads of 64 registers
-matched exactly. The active brightness is register `0x0116`, value `3`; its
-staging counterpart is `0x0156`, value `3`. The fixed firmware validates this
-unsigned field in range `0-7`, so the selected temporary value is `4` and the
-restore value is `3`. The mailbox response range `0x004C-0x0057` was all zero,
-with no BUSY or pending transaction. A separate read-only run completed 100/100
-FC03 cycles with zero timeout, MBAP, Unit, exception or bad-frame errors. See
-`Results/pc_stage2b_hw/tcp_preflight_identity.json` and the other `tcp_*`
-preflight files. No FC16 or SAVE was sent.
+Multi-register revisions and sequence values use the device's configured
+Modbus word order. Slot values are `0` none, `1` A, and `2` B. A changed SAVE
+increments the sequence using the firmware wrap rule and writes the inactive
+slot. ConfigStore states are:
 
-## Verification
+| Value | State |
+|---:|---|
+| 0 | IDLE |
+| 1 | PREPARE |
+| 2 | ERASE_PAGE_0 |
+| 3 | ERASE_PAGE_1 |
+| 4 | PROGRAM_BODY |
+| 5 | VERIFY_BODY |
+| 6 | PROGRAM_COMMIT |
+| 7 | VERIFY_FINAL |
+| 8 | COMPLETE |
+| 9 | ERROR |
 
-The Stage 2B core compiles with the existing PC solution. Configuration contract
-unit coverage checks that only safe non-calibration fields are exposed and that
-out-of-range values are rejected by metadata. Hardware validation remains
-pending explicit authorization, original-config snapshot, safe test field, and
-rollback confirmation.
+Unknown state values and disagreeing mirrors are never successful. Firmware
+operation result, operation revision, and last error exist internally but are
+not exposed by Modbus `0x0104`; the client must not fabricate them or claim a
+specific internal failure cause.
+
+## SAVE completion
+
+Mailbox `ACCEPTED` means only that the deferred SAVE request was accepted. It
+is not Flash confirmation. `SAVE_CONFIRMED` requires all of the following:
+
+- Both state mirrors are known and equal.
+- The observed terminal state is IDLE or COMPLETE, allowing for a transient COMPLETE that polling may miss.
+- `config_dirty` is zero.
+- Current revision equals saved revision and the pre-SAVE current revision.
+- Active sequence advances according to the firmware rule.
+- Active slot changes according to the firmware A/B rule.
+- The complete active configuration matches the current cycle expectation 64/64.
+- No ERROR, unknown state, or contradictory public field was observed.
+
+Seeing only ACCEPTED, IDLE, dirty clear, or equal revisions is insufficient.
+ConfigStore ERROR is a definite failure, but the detailed internal cause is not
+visible. A timeout without the complete invariant set is `RESULT_UNCERTAIN`.
+
+## RESULT_UNCERTAIN
+
+Ambiguous SAVE transmission, response loss, unrecoverable communication loss,
+poll timeout, state-mirror disagreement, contradictory state, journal/device
+conflict, ambiguous APPLY/CANCEL, or any condition that could cause duplicate
+Flash writes locks the workflow in `RESULT_UNCERTAIN`.
+
+The reserved SAVE remains consumed. The client does not resend SAVE, reboot,
+continue the next cycle, or automatically perform the restore SAVE. Only
+read-only diagnosis and manual disposition are allowed.
+
+## Journal and recovery
+
+Each authorized run creates a unique directory:
+
+```text
+Results/pc_stage2b_hw/<UTC timestamp>_<workflow GUID>/
+```
+
+The schema-versioned journal contains the original and expected 64-register
+snapshots, cycle and phase, fixed budget, reservations, SAVE tokens, Mailbox
+tokens around both reboots, ConfigStore snapshots, revision/slot/sequence
+evidence, results, uncertainty reason, final comparison, and append-only event
+history. Updates use a same-directory temporary file, complete flush, and rename
+without deleting the old journal first.
+
+A damaged, incomplete, incompatible, or contradictory journal cannot authorize
+a write. When a process exits after reserving a SAVE, recovery never resends it:
+public registers must prove completion, otherwise the result is uncertain.
+
+## Strict read-only preflight
+
+Strict preflight uses only FC03 and reports counts from the actual request
+trace. It validates firmware, schema, map, Unit ID, a fresh realtime snapshot,
+two stable active snapshots, the staging block, complete Mailbox response,
+both ConfigStore mirrors, dirty, revisions, slot, sequence, and all protocol
+error counters. Any write count, identity mismatch, BUSY/Pending state,
+ConfigStore inconsistency, changing active configuration, or communication error
+fails the gate. Every run uses a new evidence directory and cannot overwrite the
+31 existing Stage 2B evidence files.
