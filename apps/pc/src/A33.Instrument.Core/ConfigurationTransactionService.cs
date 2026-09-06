@@ -16,6 +16,7 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
 
     public async Task<ConfigurationSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
     {
+        await WaitForMonitoringSnapshotAsync(cancellationToken);
         await gate.WaitAsync(cancellationToken); State = ConfigurationTransactionState.Reading; Notify();
         try
         {
@@ -23,6 +24,14 @@ public sealed class ConfigurationTransactionService(InstrumentMonitoringService 
         }
         catch { State = ConfigurationTransactionState.Error; Notify(); throw; }
         finally { gate.Release(); }
+    }
+
+    private async Task WaitForMonitoringSnapshotAsync(CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (monitoring.Snapshot is null || monitoring.IsStale)
+            await Task.Delay(25, timeout.Token);
     }
 
     private async Task<ConfigurationSnapshot> RefreshCoreAsync(CancellationToken cancellationToken)

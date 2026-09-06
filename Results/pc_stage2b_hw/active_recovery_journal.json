@@ -1,0 +1,17 @@
+{
+  "mode": "READ_ONLY_PREFLIGHT",
+  "write_authorized": false,
+  "write_request_count": 0,
+  "apply_confirmed": false,
+  "restore_required": false,
+  "restore_completed": false,
+  "client_commit": "f136663",
+  "stm32_commit": "71a6124",
+  "endpoint": "192.168.1.100:502",
+  "unit_id": 1,
+  "map": "0x0104",
+  "firmware": "0x050A",
+  "original_brightness": 3,
+  "test_brightness": 4,
+  "status": "PREFLIGHT_COMPLETE"
+}
