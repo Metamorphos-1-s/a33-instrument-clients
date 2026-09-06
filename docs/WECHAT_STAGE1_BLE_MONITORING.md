@@ -29,8 +29,8 @@ current connection generation isolates callbacks from old connections.
 
 The client discovers service FFE0 and verifies that FFE1 supports Notify (or
 Indicate) and FFE2 supports Write. The FFE1 listener is installed before
-notifications are enabled. A new parser and sequence baseline are created for
-each connection.
+notifications are enabled. A new parser and telemetry-sequence baseline are
+created for each connection.
 
 ## Protocol and data freshness
 
@@ -48,8 +48,47 @@ Client display policy:
 - No valid frame for 5,000 ms moves a connected session to `DEGRADED`.
 - A later valid frame returns `DEGRADED` to `READY`.
 
-A sequence gap or resynchronization updates visible diagnostics but does not
+A telemetry sequence gap or resynchronization updates visible diagnostics but does not
 disconnect, erase the last valid sample or synthesize missing samples.
+
+### BLE sequence domains
+
+Deployed firmware `0x050A` has two independent sequence producers. The
+`BleTelemetryScheduler.next_sequence` counter is shared by FAST_WEIGHT (`0x01`),
+SLOW_STATUS (`0x02`) and CHECKWEIGH_STATUS (`0x03`). The command service uses
+the independent `BleCommandService.s_response_sequence` counter for
+COMMAND_RESPONSE (`0x81`). COMMAND_REQUEST (`0x80`) is also outside the
+telemetry diagnostic domain.
+
+`sequenceGaps` and `duplicates` therefore measure only loss and duplication in
+the combined telemetry stream. Command request/response frame sequences do not
+change `lastTelemetrySequence` and cannot create telemetry gaps. Command
+responses are still CRC checked and decoded; `BleCommandClient` requires both
+`transaction_id` and `operation` to match, retains mismatch accounting, and
+keeps the existing timeout plus one byte-identical read-only retry. Exact MCU
+transaction-cache replay returns the cached response without re-executing the
+operation.
+
+`resetStatistics()` clears counters only. It intentionally retains buffered
+partial bytes and `lastTelemetrySequence`, so resetting diagnostics cannot
+discard half a frame and a real telemetry loss immediately after reset remains
+detectable.
+
+The user-observed read-only reproduction was: connection verification added
+roughly two to four apparent gaps, steady READY telemetry added none, and each
+manual configuration refresh added roughly two to four more. Automatic
+verification and refresh each issue GET_DEVICE_INFO and GET_ACTIVE_CONFIG, so
+the behavior matches cross-domain command responses being compared against the
+telemetry counter. This software fix establishes that those command-correlated
+increments were client diagnostic false positives; it does not rewrite any
+historical gap, resync or failure evidence. No new raw diagnostic JSON was
+provided or fabricated for this change.
+
+STM32 `Docs/BLE_PROTOCOL_V1.md` at fixed commit `71a6124` describes
+`frame_sequence` generically as "increments per frame" even though the
+implementation has the two producers above. A later STM32 documentation-only
+change should define those domains explicitly; the firmware counters must not
+be merged for this client fix.
 
 ## Read-only commands
 

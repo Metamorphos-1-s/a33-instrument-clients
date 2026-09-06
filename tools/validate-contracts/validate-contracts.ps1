@@ -6,6 +6,8 @@ $goldenModbus = Get-Content (Join-Path $root 'contracts/modbus-v0104/golden-fram
 $map = Get-Content (Join-Path $root 'contracts/modbus-v0104/register-map.json') -Raw | ConvertFrom-Json
 if ($ble.firmwareVersion -ne '0x050A' -or $ble.schemaVersion -ne 2 -or $ble.registerMap -ne '0x0104') { throw 'BLE compatibility constants mismatch' }
 if ($ble.version -ne 1 -or $ble.messageTypes.FAST_WEIGHT -ne 1 -or $ble.messageTypes.SLOW_STATUS -ne 2 -or $ble.messageTypes.CHECKWEIGH_STATUS -ne 3) { throw 'BLE message constants mismatch' }
+$telemetryDomain = @($ble.sequenceDomains.telemetry)
+if (($telemetryDomain -join ',') -ne '1,2,3' -or $ble.sequenceDomains.commandRequest[0] -ne 128 -or $ble.sequenceDomains.commandResponse[0] -ne 129) { throw 'BLE sequence-domain contract mismatch' }
 $ops = @($ble.operations.PSObject.Properties.Value); if (($ops | Sort-Object | Get-Unique).Count -ne $ops.Count) { throw 'duplicate BLE operation code' }
 $results = @($ble.resultCodes.PSObject.Properties.Value); if (($results | Sort-Object | Get-Unique).Count -ne $results.Count) { throw 'duplicate BLE result code' }
 function Test-Crc($hex) { $list=[System.Collections.Generic.List[byte]]::new(); for($k=0;$k -lt $hex.Length;$k+=2){$list.Add([Convert]::ToByte($hex.Substring($k,2),16))}; $bytes=$list.ToArray(); if($bytes.Length -lt 14){return $false}; $last=$bytes.Length-1; $lo=$bytes[$last-1]; $hi=$bytes[$last]; $wire=[int]$lo + ([int]$hi * 256); $crc=0xffff; for($i=0;$i -lt ($bytes.Length-2);$i++){ $crc=$crc -bxor $bytes[$i]; for($j=0;$j -lt 8;$j++){ $crc=if(($crc -band 1)-ne 0){($crc -shr 1)-bxor 0xa001}else{$crc -shr 1} } }; return (($crc -band 0xffff) -eq $wire) }

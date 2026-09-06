@@ -8,6 +8,15 @@ stale data remain visible diagnostics and never become fabricated weight
 samples. Stage 1 implementation details are in
 `docs/WECHAT_STAGE1_BLE_MONITORING.md`.
 
+BLE V1 sequence diagnostics are domain-aware. FAST, SLOW and CHECKWEIGH share
+the firmware telemetry sequence and are the only frames counted by
+`sequenceGaps` and `duplicates`. COMMAND_REQUEST and COMMAND_RESPONSE use a
+separate command domain and never move the telemetry baseline. Command response
+integrity remains enforced independently by frame CRC, payload decoding,
+`transaction_id`, `operation`, timeout, byte-identical retry and mismatch
+statistics. Connection verification and manual read-only refresh therefore do
+not distort telemetry-loss diagnostics.
+
 The Windows client has the same domain model above either Modbus TCP (PC to
 CH579 gateway to STM32) or Modbus RTU (PC USART2 RS232/RS485 directly to
 STM32). `IModbusTransport` owns bytes and timing, protocol codecs own framing,
