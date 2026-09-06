@@ -1,0 +1,86 @@
+{
+  "SchemaVersion": 2,
+  "WorkflowId": "04639072-339c-4d35-b495-46f76cf03b1e",
+  "ClientCommit": "464bb380041724964ac0d05f87f2a9be5f315262",
+  "ToolAssemblyVersion": "1.0.0.0",
+  "ToolSha256": "D15AD06EB9189AB08F08A2C21BB19E786801B1AAE831B1BE0C67C0A66BFF7445",
+  "Stm32Commit": "71a61249645bff6249286ac801d7f468786cfe85",
+  "BaselineId": "a33-stage2b-prewrite-brightness3-20260906",
+  "BaselineSha256": "8C2E5BA6BF39436E5DF2956DE7E09A058DDA330C6462073483E4E70CAD1CACEE",
+  "BaselineManifestSha256": "590C27BCA456D92BF7D86EF447A1E3F737BF6BAAC4C0654C8B3F83A4AAF782EC",
+  "StartedAtUtc": "2026-09-06T19:47:18.9054648+00:00",
+  "CompletedAtUtc": "2026-09-06T19:47:19.5994582+00:00",
+  "DurationMs": 693.9934,
+  "FreshnessWaitMs": 219.2814,
+  "InitialSampleSequence": 386585,
+  "FinalSampleSequence": 386587,
+  "Endpoint": "192.168.1.100:502",
+  "UnitId": 1,
+  "Identity": {
+    "FirmwareVersion": 1290,
+    "SchemaVersion": 2,
+    "MapVersion": 260,
+    "UnitId": 1
+  },
+  "Connections": {
+    "ConnectionAttempts": 1,
+    "ConnectionSucceeded": 1,
+    "ConnectionFailed": 0,
+    "Disconnects": 1,
+    "AutomaticRetries": 0
+  },
+  "Requests": {
+    "Fc03Attempted": 26,
+    "Fc03Succeeded": 26,
+    "Fc03Failed": 0,
+    "Fc06": 0,
+    "Fc16": 0,
+    "MailboxWrites": 0,
+    "Begin": 0,
+    "Validate": 0,
+    "Apply": 0,
+    "Cancel": 0,
+    "Save": 0,
+    "Reboots": 0
+  },
+  "Errors": {
+    "Timeouts": 0,
+    "CrcErrors": 0,
+    "MbapErrors": 0,
+    "TidErrors": 0,
+    "UnitErrors": 0,
+    "ModbusExceptions": 0,
+    "BadFrames": 0,
+    "TransportErrors": 0,
+    "IsClean": true
+  },
+  "Gates": {
+    "identity": true,
+    "fresh_sample_sequence": true,
+    "active_complete": true,
+    "active_stable": true,
+    "active_matches_baseline": true,
+    "active_hash_matches_baseline": true,
+    "brightness": true,
+    "staging_complete": true,
+    "mailbox_idle": true,
+    "config_store_known_consistent_idle": true,
+    "config_store_clean": false,
+    "request_trace_consistent": true,
+    "errors_clean": true,
+    "read_only": true
+  },
+  "FinalStatus": "FAIL",
+  "FailureReasons": [
+    "Gate failed: config_store_clean."
+  ],
+  "EvidenceFileSha256": {
+    "request-trace.json": "DD7AA43B558620D1DCB6EE118C3682FD3922E85F8CFBE0067E0905481E5E4502",
+    "active-snapshot-1.json": "32419C53C15B8285A4F7CC77F75B73DE94005D4F3BA2E507252C5A8834159B3B",
+    "active-snapshot-2.json": "32419C53C15B8285A4F7CC77F75B73DE94005D4F3BA2E507252C5A8834159B3B",
+    "staging-snapshot.json": "538C9FA5690A4982FBF488C099A3EE4C4ED750C9C7A8063920EB0483F1A478E6",
+    "mailbox-snapshot.json": "70481D6373CF339676265235C164CB0A87C174CF77CA378082E664C85B7A13B2",
+    "config-store-snapshot.json": "E17EB8E7D9EC7C9F81A79D26FC104881D288ADFD82CC6720762A329B3D3ED2EE",
+    "environment.json": "2F6458D637A47951C5B0DB93E50003473141C5B6597189B50A9D386F8740DAF3"
+  }
+}

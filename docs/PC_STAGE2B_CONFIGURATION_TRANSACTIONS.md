@@ -7,6 +7,33 @@ PC Client Stage 2B PERSISTENCE SOFTWARE READY FOR STRICT READ-ONLY PREFLIGHT
 Real SAVE and reboot persistence validation NOT RUN
 ```
 
+## Dirty-baseline strict preflight
+
+Strict read-only Preflight workflow
+`04639072-339c-4d35-b495-46f76cf03b1e` ran exactly once from client commit
+`464bb380041724964ac0d05f87f2a9be5f315262`. Its eight immutable JSON files
+are archived under
+`Results/pc_stage2b_hw/20260906T194718854Z_04639072-339c-4d35-b495-46f76cf03b1e/`.
+
+The TCP connection, all 26 FC03 requests, identity, freshness, both Active
+snapshots, Mailbox, ConfigStore state mirrors, request trace, environment and
+evidence hashes passed. Active was stable 64/64, brightness was 3, and the
+canonical hash matched the trusted baseline. The only failed gate was
+`config_store_clean`: dirty was 1, current revision was 35, and saved revision
+was 22. FC06, FC16, Mailbox writes, configuration commands, SAVE, automatic
+retry and device reboot were all zero. No write was used to clean the state.
+
+The reported Staging difference at Active address `0x013E` compares different
+metadata semantics: Active `0x013E` is Config Schema V2, while the corresponding
+Staging offset `0x017E` is validation result. It is preserved and is not treated
+as configuration corruption or repaired by a write.
+
+The user subsequently authorized one manual, no-SAVE preconditioning reboot to
+discard the unsaved RAM/runtime state. At this archive point that reboot is
+pending operator confirmation. It is separate from the future cycle A/B
+persistence-validation reboots, does not write Flash, and does not consume the
+fixed SAVE budget of 2.
+
 RS232 Stage 2B configuration transactions:
 
 ```text
