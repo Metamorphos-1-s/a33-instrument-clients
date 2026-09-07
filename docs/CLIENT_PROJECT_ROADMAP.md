@@ -76,3 +76,12 @@ clean sessions: Cycle A, Cycle B and final stability. Their command shapes and
 aggregate two-SAVE budget must match the journal and traces. Missing, duplicate,
 extra or conflicting sessions are preserved for independent review and are not
 accepted by the Complete fast path.
+
+The initial formal TCP persistence attempt exposed a repeatable gateway
+blackout: immediate Mailbox FC03 after a successful SAVE FC16 returned Modbus
+exception `0x0B`, while later public-state inspection confirmed the save. That
+workflow is preserved as `RESULT_UNCERTAIN`, and the device has been restored
+and power-cycle verified at the authoritative brightness-3 baseline. The
+software now applies a fixed one-second SAVE response quiet period while
+holding the shared request gate; SAVE remains single-attempt and any later
+error still fails the session. A new independent qualification is required.

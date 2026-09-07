@@ -313,3 +313,19 @@ are zero. The final session permits only FC03. The offline validator binds all
 three IDs, files, hashes, environments, traces and tool identities, and
 requires exactly two aggregate SAVE commands. Missing, extra or recovery
 sessions require independent review and cannot become formal PASS.
+
+### SAVE response quiet period
+
+The first formal hardware qualification attempt proved that the TCP gateway
+can return Modbus exception `0x0B` when Mailbox FC03 is issued immediately
+after an acknowledged SAVE FC16. Later read-only inspection proved the same
+SAVE completed successfully. The affected workflow remains `RESULT_UNCERTAIN`
+and is not eligible for PASS; the device was separately restored to the
+authoritative brightness-3 baseline and verified after a physical power cycle.
+
+Command 13 now keeps the shared command gate for a fixed one-second quiet
+period after its single FC16 response before reading Mailbox. This prevents
+both the transaction and background monitor from issuing FC03 during the
+observed Flash blackout. The delay is not configurable through CLI. Any error
+after the quiet period still locks the strict session, consumes the already
+reserved SAVE budget and cannot trigger a retry.

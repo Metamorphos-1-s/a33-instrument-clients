@@ -11,11 +11,14 @@ public sealed class ConfigurationTransactionService
     private ushort? activeToken;
     private bool validated;
     private bool saveSent;
+    private readonly TimeSpan saveResponseQuietPeriod;
+    public static TimeSpan FixedSaveResponseQuietPeriod { get; } = TimeSpan.FromSeconds(1);
 
-    public ConfigurationTransactionService(InstrumentMonitoringService monitoring, MailboxTokenAllocator? tokens = null)
+    public ConfigurationTransactionService(InstrumentMonitoringService monitoring, MailboxTokenAllocator? tokens = null,TimeSpan? saveResponseQuietPeriod = null)
     {
         this.monitoring = monitoring;
         this.tokens = tokens;
+        this.saveResponseQuietPeriod=saveResponseQuietPeriod??FixedSaveResponseQuietPeriod;
     }
 
     public ConfigurationTransactionState State { get; private set; } = ConfigurationTransactionState.Disconnected;
@@ -135,7 +138,8 @@ public sealed class ConfigurationTransactionService
         saveSent = true;
         State = ConfigurationTransactionState.Saving;
         Notify();
-        return await SubmitAsync(13, token, cancellationToken);
+        try{return await SubmitAsync(13, token, cancellationToken);}
+        catch(AmbiguousDeviceCommandException){State=ConfigurationTransactionState.ResultUncertain;Notify();throw;}
     }
 
     private async Task<ConfigurationSnapshot> RefreshCoreAsync(CancellationToken cancellationToken)
@@ -171,6 +175,7 @@ public sealed class ConfigurationTransactionService
             return await monitoring.WithStrictWriteExclusiveAsync(async client =>
             {
                 await client.WriteMultipleAsync(0x0040, words, cancellationToken);
+                if(commandId==13&&saveResponseQuietPeriod>TimeSpan.Zero)await Task.Delay(saveResponseQuietPeriod,cancellationToken);
                 var response = await client.ReadHoldingAsync(0x004C, 12, cancellationToken);
                 if (response[0] != token || response[3] != commandId)
                     throw new AmbiguousDeviceCommandException("Mailbox response token or command mismatch after a write.");

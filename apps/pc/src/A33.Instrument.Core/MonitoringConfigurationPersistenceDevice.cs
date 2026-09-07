@@ -1,6 +1,6 @@
 namespace A33.Instrument.Core;
 
-public sealed class MonitoringConfigurationPersistenceDevice(InstrumentMonitoringService monitoring) : IConfigurationPersistenceDevice
+public sealed class MonitoringConfigurationPersistenceDevice(InstrumentMonitoringService monitoring,TimeSpan? saveResponseQuietPeriod = null) : IConfigurationPersistenceDevice
 {
     private ConfigurationTransactionService? transaction;
     public A33.Instrument.Protocol.WordOrder WordOrder => monitoring.WordOrder;
@@ -34,7 +34,7 @@ public sealed class MonitoringConfigurationPersistenceDevice(InstrumentMonitorin
 
     public async Task ApplyBrightnessRamAsync(ushort brightness, MailboxTokenAllocator tokens, CancellationToken cancellationToken = default)
     {
-        transaction = new ConfigurationTransactionService(monitoring, tokens);
+        transaction = new ConfigurationTransactionService(monitoring, tokens,saveResponseQuietPeriod);
         await transaction.RefreshAsync(cancellationToken);
         transaction.Edit("brightness", brightness);
         await transaction.ValidateAsync(cancellationToken);
