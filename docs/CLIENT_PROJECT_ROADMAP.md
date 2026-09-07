@@ -43,3 +43,20 @@ sample. A Complete fast return remains offline and is allowed only after the
 full journal, baseline, tool identity, hashes, session trace, environment and
 stability evidence chain is validated. The real SAVE and two-reboot workflow
 has not been run.
+
+The real-transport readiness layer adds an explicit asynchronous Fresh Snapshot
+barrier before any persistence Start/Resume and a persistence-only strict error
+latch. Background polling and all configuration writes share one exclusion
+gate; each write rechecks strict health while holding it. Request trace,
+communication diagnostics, strict latch, reconnect and connection generation
+jointly determine session cleanliness. Normal WPF monitoring keeps its existing
+Degraded recovery behavior.
+
+Final stability evidence must cover the beginning, middle and tail of the full
+600-second UTC window without reversed timestamps or sampling gaps. Complete
+replay remains a zero-connection operation and validates the full journal,
+Preflight, final stability, summary, trace, environment and hash chain. After
+Stage 2B hardware closure, Validation/Evidence should be frozen as a laboratory
+tool. Any physical assembly separation from product Core is deferred for Stage
+2C together with productized general configuration, calibration and additional
+interfaces.

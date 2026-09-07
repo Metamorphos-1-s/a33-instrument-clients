@@ -31,7 +31,8 @@ public sealed record PersistenceSessionSummary(
     string ToolAssemblyVersion, string ToolSha256,
     DateTimeOffset StartedAtUtc, DateTimeOffset CompletedAtUtc, double DurationMs,
     PreflightConnectionStatistics Connections, PersistenceTraceStatistics Requests,
-    PersistenceTraceErrors Errors,long AutomaticReconnects, string Phase, string? Error,
+    PersistenceTraceErrors Errors,CommunicationDiagnosticsSnapshot Diagnostics,StrictMonitoringFault? StrictFault,
+    long AutomaticReconnects,long ConnectionGenerationStart,long ConnectionGenerationEnd,string Phase,string? Error,
     string TraceFile, string TraceSha256, string EnvironmentFile, string EnvironmentSha256,
     string? FinalStabilityFile,string? FinalStabilitySha256);
 
@@ -56,10 +57,11 @@ public static class PersistenceCompletionEvidenceValidator
             .Where(x=>x.Summary.Phase=="COMPLETE_STABILITY_PASS"&&x.Summary.FinalStabilityFile=="final-stability.json").ToArray();
         if(summaries.Length!=1)throw new InvalidDataException("A unique final read-only session summary is required.");
         var summary=summaries[0].Summary;
-        if(summary.SchemaVersion!=1||summary.WorkflowId!=workflowId||summary.ClientCommit!=clientCommit||summary.ToolAssemblyVersion!=toolVersion||summary.ToolSha256!=toolSha256||
+        if(summary.SchemaVersion!=2||summary.WorkflowId!=workflowId||summary.ClientCommit!=clientCommit||summary.ToolAssemblyVersion!=toolVersion||summary.ToolSha256!=toolSha256||
             Path.GetFileName(summaries[0].Path)!=$"persistence-session-{summary.SessionId}-summary.json"||summary.StartedAtUtc.Offset!=TimeSpan.Zero||
             summary.CompletedAtUtc.Offset!=TimeSpan.Zero||summary.CompletedAtUtc<summary.StartedAtUtc||Math.Abs((summary.CompletedAtUtc-summary.StartedAtUtc).TotalMilliseconds-summary.DurationMs)>0.01||
-            summary.Error is not null||summary.AutomaticReconnects!=0||summary.Connections is not{ConnectionAttempts:1,ConnectionSucceeded:1,ConnectionFailed:0,Disconnects:1,AutomaticRetries:0}||
+            summary.Error is not null||summary.AutomaticReconnects!=0||summary.StrictFault is not null||summary.Diagnostics is null||!summary.Diagnostics.IsClean||
+            summary.ConnectionGenerationStart<=0||summary.ConnectionGenerationEnd!=summary.ConnectionGenerationStart||summary.Connections is not{ConnectionAttempts:1,ConnectionSucceeded:1,ConnectionFailed:0,Disconnects:1,AutomaticRetries:0}||
             summary.Requests.Fc03Attempted<=0||summary.Requests.Fc03Attempted!=summary.Requests.Fc03Succeeded||summary.Requests.Fc03Failed!=0||
             summary.Requests.Fc06Attempted!=0||summary.Requests.Fc16Attempted!=0||summary.Requests.StagingWrites!=0||summary.Requests.MailboxWrites!=0||
             summary.Requests.Begin!=0||summary.Requests.Validate!=0||summary.Requests.Apply!=0||summary.Requests.Cancel!=0||summary.Requests.Save!=0||!summary.Errors.IsClean)
@@ -76,9 +78,8 @@ public static class PersistenceCompletionEvidenceValidator
                 x.StartedAtUtc.Offset!=TimeSpan.Zero||x.CompletedAtUtc.Offset!=TimeSpan.Zero||x.StartedAtUtc<summary.StartedAtUtc||x.CompletedAtUtc>summary.CompletedAtUtc||x.CompletedAtUtc<x.StartedAtUtc))
             throw new InvalidDataException("Final session trace semantics mismatch.");
         var environment=AtomicJsonFile.Read<PreflightEnvironmentEvidence>(environmentPath);
-        if(environment.WorkflowId!=workflowId||environment.ClientCommit!=clientCommit||environment.ToolAssemblyVersion!=toolVersion||environment.ToolSha256!=toolSha256||
-            environment.StartedAtUtc!=summary.StartedAtUtc||environment.CompletedAtUtc!=summary.CompletedAtUtc||environment.StartedAtUtc.Offset!=TimeSpan.Zero||environment.CompletedAtUtc.Offset!=TimeSpan.Zero||
-            stability.StartedAtUtc<summary.StartedAtUtc||stability.CompletedAtUtc>summary.CompletedAtUtc)
+        EvidenceEnvironmentValidator.Validate(environment,workflowId,summary.StartedAtUtc,summary.CompletedAtUtc,summary.DurationMs,clientCommit,toolVersion,toolSha256);
+        if(stability.StartedAtUtc<summary.StartedAtUtc||stability.CompletedAtUtc>summary.CompletedAtUtc)
             throw new InvalidDataException("Final session environment or timing binding mismatch.");
     }
     private static string BoundPath(string directory,string file){if(Path.GetFileName(file)!=file)throw new InvalidDataException("Evidence filename is not local.");var path=Path.Combine(directory,file);if(!File.Exists(path))throw new InvalidDataException($"Evidence file is missing: {file}");return path;}

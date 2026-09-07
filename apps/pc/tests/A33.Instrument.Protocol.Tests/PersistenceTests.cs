@@ -505,6 +505,22 @@ public sealed class PersistenceTests
         Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(600),600,true,Expectation(),[],[sample,badHash]),Baseline()));
     }
 
+    [Theory][InlineData("empty")][InlineData("head")][InlineData("middle")][InlineData("tail")][InlineData("duplicate")][InlineData("reverse")][InlineData("non-utc")][InlineData("completed-tail")]
+    public void FinalStabilityValidatorRejectsTimeCoverageGaps(string failure)
+    {
+        var start=DateTimeOffset.Parse("2026-09-07T00:00:00Z");var mailbox=new MailboxSnapshot(0,0,0,0,new ushort[12]);
+        var samples=Enumerable.Range(0,601).Select(i=>new FinalStabilitySample(start.AddSeconds(i),Active(3),Baseline().Manifest.ActiveArraySha256,3,Store(),mailbox)).ToArray();
+        if(failure=="empty")samples=[];
+        if(failure=="head")samples[0]=samples[0] with{CapturedAtUtc=start.AddSeconds(3)};
+        if(failure=="middle")samples[300]=samples[300] with{CapturedAtUtc=start.AddSeconds(303)};
+        if(failure=="tail")samples[^1]=samples[^1] with{CapturedAtUtc=start.AddSeconds(597)};
+        if(failure=="duplicate")samples[300]=samples[300] with{CapturedAtUtc=samples[299].CapturedAtUtc};
+        if(failure=="reverse")samples[300]=samples[300] with{CapturedAtUtc=start.AddSeconds(298)};
+        if(failure=="non-utc")samples[100]=samples[100] with{CapturedAtUtc=samples[100].CapturedAtUtc.ToOffset(TimeSpan.FromHours(8))};
+        var completed=failure=="completed-tail"?start.AddSeconds(610):start.AddSeconds(600);var duration=(completed-start).TotalSeconds;
+        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(start,completed,duration,true,Expectation(),[],samples),Baseline()));
+    }
+
     [Theory][InlineData("active")][InlineData("brightness")][InlineData("dirty")][InlineData("mailbox")][InlineData("mailbox-token")][InlineData("state")][InlineData("mirrors")][InlineData("slot")][InlineData("sequence")][InlineData("revisions")]
     public async Task FinalStabilityStopsOnFirstInvariantFailure(string failure)
     {

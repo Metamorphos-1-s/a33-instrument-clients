@@ -7,14 +7,15 @@ public static class PersistenceHardwareRunner
     public static Task<int> RunAsync(
         string[] args, Func<InstrumentMonitoringService>? monitoringFactory = null,
         string? evidenceRootOverride = null, Func<DateTimeOffset>? utcNow = null,
-        IPersistenceClock? workflowClock = null, FinalStabilityPolicy? stabilityPolicy = null) =>
+        IPersistenceClock? workflowClock = null, FinalStabilityPolicy? stabilityPolicy = null,TimeSpan? readinessTimeout = null) =>
         PersistenceHardwareAuthorizationGate.ExecuteAfterAuthorizationAsync(args,
             authorization => RunAuthorizedAsync(authorization, monitoringFactory ?? (() => new InstrumentMonitoringService()), evidenceRootOverride,
-                utcNow ?? (() => DateTimeOffset.UtcNow), workflowClock ?? new SystemPersistenceClock(), stabilityPolicy ?? FinalStabilityPolicy.Fixed600Seconds));
+                utcNow ?? (() => DateTimeOffset.UtcNow), workflowClock ?? new SystemPersistenceClock(), stabilityPolicy ?? FinalStabilityPolicy.Fixed600Seconds,
+                readinessTimeout ?? TimeSpan.FromSeconds(5)));
 
     private static async Task<int> RunAuthorizedAsync(
         PersistenceHardwareAuthorization authorization, Func<InstrumentMonitoringService> monitoringFactory,
-        string? evidenceRootOverride, Func<DateTimeOffset> utcNow, IPersistenceClock workflowClock, FinalStabilityPolicy stabilityPolicy)
+        string? evidenceRootOverride, Func<DateTimeOffset> utcNow, IPersistenceClock workflowClock, FinalStabilityPolicy stabilityPolicy,TimeSpan readinessTimeout)
     {
         var repositoryRoot = RepositoryRoot.Find();
         var evidenceRoot = evidenceRootOverride ?? Path.Combine(repositoryRoot, "Results", "pc_stage2b_hw");
@@ -64,7 +65,7 @@ public static class PersistenceHardwareRunner
         var traceFile = $"persistence-session-{sessionId}-request-trace.json";
         var environmentFile = $"persistence-session-{sessionId}-environment.json";
         var summaryFile = $"persistence-session-{sessionId}-summary.json";
-        var connectionAttempts = 0; var connectionSucceeded = 0; var connectionFailed = 0; var disconnects = 0;
+        var connectionAttempts = 0; var connectionSucceeded = 0; var connectionFailed = 0; var disconnects = 0;long generationStart=0;long generationEnd=0;
         string phase = "NOT_STARTED"; string? sessionError = null;var exitCode=22;DateTimeOffset? stabilityCompleted=null;
         await using var monitoring = monitoringFactory();
         try
@@ -72,11 +73,13 @@ public static class PersistenceHardwareRunner
             connectionAttempts++;
             try
             {
-                await monitoring.ConnectAsync(new MonitoringOptions(TransportMode.Tcp, "192.168.1.100", 502, UnitId: 1, AutoReconnectAttempts: 0));
+                await monitoring.ConnectAsync(new MonitoringOptions(TransportMode.Tcp, "192.168.1.100", 502, UnitId: 1, AutoReconnectAttempts: 0,StrictSession:true));
                 connectionSucceeded++;
+                generationStart=monitoring.ConnectionGeneration;
             }
             catch { connectionFailed++; throw; }
             await monitoring.StartMonitoringAsync();
+            await monitoring.WaitForFreshSnapshotAsync(readinessTimeout);
             var persistenceDevice=new MonitoringConfigurationPersistenceDevice(monitoring);
             var persistence = new ConfigurationPersistenceService(persistenceDevice, safety, workflowClock);
             var journal = authorization.PreflightWorkflowId is not null
@@ -112,6 +115,8 @@ public static class PersistenceHardwareRunner
         finally
         {
             await monitoring.StopMonitoringAsync();
+            generationEnd=monitoring.ConnectionGeneration;
+            var diagnostics=monitoring.Diagnostics.Snapshot();var strictFault=monitoring.StrictFault;
             if(monitoring.State != MonitoringConnectionState.Disconnected){await monitoring.DisconnectAsync();disconnects++;}
             var completed = DateTimeOffset.UtcNow;
             if(stabilityCompleted>completed)completed=stabilityCompleted.Value;
@@ -123,10 +128,11 @@ public static class PersistenceHardwareRunner
             await AtomicJsonFile.WriteAsync(environmentPath, environment);
             var stabilityPath=Path.Combine(sessionDirectory,"final-stability.json");
             var hasStability=File.Exists(stabilityPath);
-            var summary = new PersistenceSessionSummary(1, sessionId, workflowId, clientCommit, toolVersion, toolSha256,
+            var summary = new PersistenceSessionSummary(2, sessionId, workflowId, clientCommit, toolVersion, toolSha256,
                 sessionStarted, completed, (completed-sessionStarted).TotalMilliseconds,
                 new(connectionAttempts,connectionSucceeded,connectionFailed,disconnects,0),
-                PersistenceTraceStatistics.FromTrace(trace),PersistenceTraceErrors.FromTrace(trace),monitoring.Diagnostics.Reconnects, phase, sessionError,
+                PersistenceTraceStatistics.FromTrace(trace),PersistenceTraceErrors.FromTrace(trace),diagnostics,strictFault,
+                monitoring.Diagnostics.Reconnects,generationStart,generationEnd,phase,sessionError,
                 traceFile, PersistenceBaselineContract.ComputeFileSha256(tracePath),
                 environmentFile, PersistenceBaselineContract.ComputeFileSha256(environmentPath),
                 hasStability?"final-stability.json":null,hasStability?PersistenceBaselineContract.ComputeFileSha256(stabilityPath):null);

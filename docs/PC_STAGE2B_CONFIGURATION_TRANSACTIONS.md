@@ -213,6 +213,34 @@ CRC, MBAP, TID, Unit, Modbus exception, bad-frame and transport errors. The
 persistence connection sets automatic reconnect attempts to zero; SAVE itself
 has no retry path.
 
+The persistence runner enables a HardwareValidation-only strict monitoring
+mode. `StartMonitoringAsync` starts an asynchronous loop and does not imply
+that its first TCP response has completed, so the runner waits on an explicit
+current-generation Fresh Snapshot barrier before creating or resuming a
+persistence cycle. The barrier is cancellation-aware, bounded, event-driven,
+requires map `0x0104`, Monitoring state and a non-stale snapshot, and fails on
+disconnect, generation change or a latched error. A synchronous Fake can hide
+this first-frame race; the acceptance tests therefore use a genuinely
+asynchronous, externally released first FC03 and prove that no journal or
+write exists before readiness.
+
+Strict sessions share one exclusion gate between background polling and
+configuration commands. Every Mailbox write (BEGIN, VALIDATE, APPLY, CANCEL
+and SAVE) and every Staging write rechecks session health after acquiring that
+gate and before entering the Transport. Timeout, CRC, MBAP, TID, Unit, Modbus
+exception, bad frame, transport, decode or monitor-loop error, stale snapshot,
+unexpected disconnect, generation change or reconnect permanently latches the
+first UTC error. Later successful reads cannot clear it. Normal WPF monitoring
+does not enable this mode and retains its existing Degraded/reconnect behavior.
+
+Session cleanliness is not inferred from one counter source. The atomic
+summary binds actual request trace statistics, a serializable
+`CommunicationDiagnostics` snapshot, the strict latch, reconnect count,
+connection generation and connection/disconnection counts. Write sessions
+record their legitimate commands; the final read-only session additionally
+requires all three error views clean, continuous generation, zero reconnect,
+all FC03 successful, and every write/command count zero.
+
 After reboot 1, before cycle B writes, the client requires Mailbox token 0,
 IDLE/clean ConfigStore, and exact slot/sequence/revision continuity with cycle A
 SAVE confirmation plus the brightness-4 Active snapshot. After reboot 2 it
@@ -237,3 +265,18 @@ baseline, client commit, tool version/SHA, every evidence hash, cross-file
 phase/time/identity bindings, trace semantics, and all final read-only zero
 error/zero-write counters. Missing, damaged, tampered or conflicting evidence
 fails offline. The real SAVE and two-reboot workflow has not been run.
+
+The 600-second validator also requires UTC start/completion/sample timestamps,
+duration agreement, a first sample within two seconds, no reversed sample and
+no interval over two seconds, at least 600 seconds of samples, and a final
+sample within two seconds of completion. This covers the beginning, middle and
+tail rather than accepting a short sample set with a later completion time.
+Persistence environment evidence uses the same schema, UTC, duration, full
+commit, current tool version/SHA and non-empty OS/framework/architecture/
+machine validation routine as Preflight evidence.
+
+HardwareValidation remains a bounded laboratory acceptance tool and is not a
+WPF product feature. After Stage 2B hardware closure it should be frozen;
+Stage 2C may evaluate physically separating Validation/Evidence code from the
+product Core while implementing general configuration, calibration and other
+interfaces.

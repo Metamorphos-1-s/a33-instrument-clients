@@ -63,7 +63,7 @@ public sealed class ConfigurationTransactionService
             var response = await SubmitAsync(9, activeToken.Value, cancellationToken);
             if (response.ResultCode != 0) { activeToken=null;State=ConfigurationTransactionState.Error;Notify();throw new InvalidOperationException($"BEGIN result {response.ResultCode}"); }
             foreach (var field in snapshot.Fields.Where(f => f.IsDirty))
-                try{await monitoring.WithCommandExclusiveAsync(c => c.WriteMultipleAsync((ushort)(field.Address + 0x40), field.Edited, cancellationToken), cancellationToken);}
+                try{await monitoring.WithStrictWriteExclusiveAsync(c => c.WriteMultipleAsync((ushort)(field.Address + 0x40), field.Edited, cancellationToken), cancellationToken);}
                 catch(Exception error){throw new AmbiguousDeviceCommandException("Staging write may have reached the device but its result is unknown.",error);}
             activeToken = await NextTokenAsync(cancellationToken);
             response = await SubmitAsync(10, activeToken.Value, cancellationToken);
@@ -168,7 +168,7 @@ public sealed class ConfigurationTransactionService
         words[11] = 0xA55A;
         try
         {
-            return await monitoring.WithCommandExclusiveAsync(async client =>
+            return await monitoring.WithStrictWriteExclusiveAsync(async client =>
             {
                 await client.WriteMultipleAsync(0x0040, words, cancellationToken);
                 var response = await client.ReadHoldingAsync(0x004C, 12, cancellationToken);

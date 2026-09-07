@@ -143,7 +143,8 @@ public static class PreflightEvidenceValidator
         if (summary.EvidenceFileSha256.Count != PreflightEvidenceStore.RequiredFiles.Length - 1)
             throw new InvalidDataException("Preflight evidence hash set is incomplete.");
         var environment = AtomicJsonFile.Read<PreflightEnvironmentEvidence>(Path.Combine(directory, "environment.json"));
-        ValidateEnvironment(environment, summary, currentClientCommit);
+        EvidenceEnvironmentValidator.Validate(environment,summary.WorkflowId,summary.StartedAtUtc,summary.CompletedAtUtc,summary.DurationMs,
+            currentClientCommit,summary.ToolAssemblyVersion,summary.ToolSha256);
         var trace = AtomicJsonFile.Read<PreflightRequestTrace[]>(Path.Combine(directory, "request-trace.json"));
         ValidateTraceShape(trace);
         var requests = PreflightRequestStatistics.FromTrace(trace);
@@ -177,24 +178,6 @@ public static class PreflightEvidenceValidator
         "config_store_known_consistent_idle", "config_store_clean", "request_trace_consistent", "errors_clean", "read_only"
     ];
 
-    private static void ValidateEnvironment(PreflightEnvironmentEvidence environment, PreflightSummary summary, string currentClientCommit)
-    {
-        if (environment is null || environment.SchemaVersion != 1 || environment.WorkflowId != summary.WorkflowId ||
-            environment.StartedAtUtc.Offset != TimeSpan.Zero || environment.CompletedAtUtc.Offset != TimeSpan.Zero ||
-            environment.StartedAtUtc != summary.StartedAtUtc || environment.CompletedAtUtc != summary.CompletedAtUtc ||
-            environment.CompletedAtUtc < environment.StartedAtUtc ||
-            environment.ClientCommit != summary.ClientCommit || environment.ClientCommit != currentClientCommit ||
-            environment.ClientCommit.Length != 40 || environment.ClientCommit.Any(x => !Uri.IsHexDigit(x)) ||
-            environment.ToolAssemblyVersion != summary.ToolAssemblyVersion || environment.ToolSha256 != summary.ToolSha256 ||
-            environment.ToolSha256.Length != 64 || environment.ToolSha256.Any(x => !Uri.IsHexDigit(x)) ||
-            string.IsNullOrWhiteSpace(environment.OsDescription) || string.IsNullOrWhiteSpace(environment.FrameworkDescription) ||
-            string.IsNullOrWhiteSpace(environment.ProcessArchitecture) || string.IsNullOrWhiteSpace(environment.MachineName) ||
-            string.IsNullOrWhiteSpace(environment.ToolAssemblyVersion) || environment.ToolAssemblyVersion == "unknown")
-            throw new InvalidDataException("Preflight environment evidence does not match its summary, build, UTC run, or tool identity.");
-        if (Math.Abs((environment.CompletedAtUtc - environment.StartedAtUtc).TotalMilliseconds - summary.DurationMs) > 1)
-            throw new InvalidDataException("Preflight environment duration does not match its summary.");
-    }
-
     private static void ValidateTraceShape(IReadOnlyList<PreflightRequestTrace> trace)
     {
         if (trace.Count == 0 || trace.Any(x => x is null || x.FunctionCode != 3 || !x.Succeeded || x.RegisterCount is 0 or > 16 ||
@@ -220,4 +203,22 @@ public static class PreflightEnvironment
         assembly.GetName().Version?.ToString() ?? "unknown", toolSha256,
         RuntimeInformation.OSDescription, RuntimeInformation.FrameworkDescription,
         RuntimeInformation.ProcessArchitecture.ToString(), Environment.MachineName);
+}
+
+public static class EvidenceEnvironmentValidator
+{
+    public static void Validate(PreflightEnvironmentEvidence environment,string workflowId,DateTimeOffset startedAtUtc,
+        DateTimeOffset completedAtUtc,double durationMs,string clientCommit,string toolVersion,string toolSha256)
+    {
+        if(environment is null||environment.SchemaVersion!=1||environment.WorkflowId!=workflowId||
+            environment.StartedAtUtc!=startedAtUtc||environment.CompletedAtUtc!=completedAtUtc||
+            environment.StartedAtUtc.Offset!=TimeSpan.Zero||environment.CompletedAtUtc.Offset!=TimeSpan.Zero||environment.CompletedAtUtc<environment.StartedAtUtc||
+            environment.ClientCommit!=clientCommit||environment.ClientCommit.Length!=40||environment.ClientCommit.Any(x=>!Uri.IsHexDigit(x))||
+            environment.ToolAssemblyVersion!=toolVersion||string.IsNullOrWhiteSpace(environment.ToolAssemblyVersion)||environment.ToolAssemblyVersion=="unknown"||
+            environment.ToolSha256!=toolSha256||environment.ToolSha256.Length!=64||environment.ToolSha256.Any(x=>!Uri.IsHexDigit(x))||
+            string.IsNullOrWhiteSpace(environment.OsDescription)||string.IsNullOrWhiteSpace(environment.FrameworkDescription)||
+            string.IsNullOrWhiteSpace(environment.ProcessArchitecture)||string.IsNullOrWhiteSpace(environment.MachineName)||
+            Math.Abs((environment.CompletedAtUtc-environment.StartedAtUtc).TotalMilliseconds-durationMs)>1)
+            throw new InvalidDataException("Environment evidence does not match its summary, build, UTC run, or tool identity.");
+    }
 }

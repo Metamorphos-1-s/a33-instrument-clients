@@ -205,11 +205,13 @@ public sealed class PersistenceEvidenceGateTests
         var commit=assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(x=>x.Key=="GitCommit").Value!;
         var version=assembly.GetName().Version!.ToString();var toolHash=PersistenceBaselineContract.ComputeFileSha256(assembly.Location);
         var preflight=await CreateEvidenceAsync(files.Root,s=>s with{ToolAssemblyVersion=version,ToolSha256=toolHash},clientCommit:commit);
-        var clock=new RunnerClock(DateTimeOffset.UtcNow);var hardware=new PersistenceTransport(Baseline().Manifest.ActiveRegisters);
+        var clock=new RunnerClock(DateTimeOffset.UtcNow);var hardware=new PersistenceTransport(Baseline().Manifest.ActiveRegisters){HoldFirstRealtime=true};
         var factoryCalls=0;InstrumentMonitoringService Factory(){factoryCalls++;return new InstrumentMonitoringService(new SingleTransportFactory(hardware));}
         var policy=new FinalStabilityPolicy(TimeSpan.FromSeconds(600),TimeSpan.FromSeconds(1));
 
-        Assert.Equal(20,await PersistenceHardwareRunner.RunAsync(AuthorizedArgs(preflight.WorkflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(1),clock,policy));
+        var firstRun=PersistenceHardwareRunner.RunAsync(AuthorizedArgs(preflight.WorkflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(1),clock,policy);
+        await WaitUntilAsync(()=>hardware.RealtimeAttempts>0);Assert.Empty(Directory.GetFiles(files.Root,"persistence-journal.json",SearchOption.AllDirectories));Assert.Equal(0,hardware.SaveCount);
+        hardware.ReleaseFirstRealtime();Assert.Equal(20,await firstRun);
         var journalPath=Directory.GetFiles(files.Root,"persistence-journal.json",SearchOption.AllDirectories).Single();
         var workflowId=(await PersistenceJournalStore.ReadAsync(journalPath)).WorkflowId;
         Assert.Equal(1,hardware.SaveCount);hardware.Reboot();clock.SynchronizeForward();
@@ -221,9 +223,27 @@ public sealed class PersistenceEvidenceGateTests
         Assert.Equal(3,factoryCalls);Assert.Equal(2,hardware.SaveCount);
     }
 
+    [Fact] public async Task RunnerFreshSnapshotTimeoutWritesFailureEvidenceWithoutCycleOrWrite()
+    {
+        using var files=new TempDirectory();var assembly=typeof(PersistenceHardwareRunner).Assembly;
+        var commit=assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(x=>x.Key=="GitCommit").Value!;
+        var version=assembly.GetName().Version!.ToString();var toolHash=PersistenceBaselineContract.ComputeFileSha256(assembly.Location);
+        var preflight=await CreateEvidenceAsync(files.Root,s=>s with{ToolAssemblyVersion=version,ToolSha256=toolHash},clientCommit:commit);
+        var hardware=new PersistenceTransport(Baseline().Manifest.ActiveRegisters){HoldFirstRealtime=true};var calls=0;
+        var exit=await PersistenceHardwareRunner.RunAsync(AuthorizedArgs(preflight.WorkflowId),()=>{calls++;return new InstrumentMonitoringService(new SingleTransportFactory(hardware));},
+            files.Root,()=>preflight.Now.AddSeconds(1),readinessTimeout:TimeSpan.FromMilliseconds(20));
+        Assert.Equal(22,exit);Assert.Equal(1,calls);Assert.Equal(0,hardware.SaveCount);Assert.Empty(Directory.GetFiles(files.Root,"persistence-journal.json",SearchOption.AllDirectories));
+        var summaryPath=Directory.GetFiles(files.Root,"persistence-session-*-summary.json",SearchOption.AllDirectories).Single();var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath);
+        Assert.Equal("FAILED_OR_UNCERTAIN",summary.Phase);Assert.Equal("SnapshotTimeout",summary.StrictFault?.Category);Assert.Equal(0,summary.Requests.Fc16Attempted);
+        Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(summaryPath)!,summary.TraceFile)));Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(summaryPath)!,summary.EnvironmentFile)));
+    }
+
     [Theory]
     [InlineData("missing-summary")][InlineData("missing-final")][InlineData("final-damaged")][InlineData("final-tamper")][InlineData("final-semantic")]
     [InlineData("trace-hash")][InlineData("trace-write")][InlineData("phase")][InlineData("environment")]
+    [InlineData("diagnostics")][InlineData("strict-latch")][InlineData("generation")]
+    [InlineData("environment-schema")][InlineData("environment-empty")][InlineData("environment-utc")][InlineData("environment-time")]
+    [InlineData("environment-commit")][InlineData("environment-version")][InlineData("environment-tool-sha")][InlineData("environment-damaged")]
     [InlineData("reconnect")][InlineData("fc03")][InlineData("fc06")][InlineData("staging")][InlineData("mailbox")]
     [InlineData("begin")][InlineData("validate")][InlineData("apply")][InlineData("cancel")][InlineData("save")][InlineData("error")]
     public async Task CompleteEvidenceMissingTamperedOrConflictingIsRejectedOffline(string failure)
@@ -240,6 +260,25 @@ public sealed class PersistenceEvidenceGateTests
             report=report with{Samples=[report.Samples[0],report.Samples[1] with{ActiveRegisters=changed}]};File.Delete(finalPath);await AtomicJsonFile.WriteAsync(finalPath,report);
             var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath) with{FinalStabilitySha256=PersistenceBaselineContract.ComputeFileSha256(finalPath)};
             File.Delete(summaryPath);await AtomicJsonFile.WriteAsync(summaryPath,summary);
+        }
+        else if(failure.StartsWith("environment-",StringComparison.Ordinal))
+        {
+            var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath);var environmentPath=Path.Combine(complete.Directory,summary.EnvironmentFile);
+            if(failure=="environment-damaged"){File.Delete(environmentPath);File.WriteAllText(environmentPath,"{");}
+            else
+            {
+                var environment=AtomicJsonFile.Read<PreflightEnvironmentEvidence>(environmentPath);
+                if(failure=="environment-schema")environment=environment with{SchemaVersion=2};
+                if(failure=="environment-empty")environment=environment with{OsDescription=""};
+                if(failure=="environment-utc")environment=environment with{StartedAtUtc=environment.StartedAtUtc.ToOffset(TimeSpan.FromHours(8))};
+                if(failure=="environment-time")environment=environment with{CompletedAtUtc=environment.CompletedAtUtc.AddSeconds(1)};
+                if(failure=="environment-commit")environment=environment with{ClientCommit=new string('A',40)};
+                if(failure=="environment-version")environment=environment with{ToolAssemblyVersion="9.9.9.9"};
+                if(failure=="environment-tool-sha")environment=environment with{ToolSha256=new string('B',64)};
+                File.Delete(environmentPath);await AtomicJsonFile.WriteAsync(environmentPath,environment);
+                summary=summary with{EnvironmentSha256=PersistenceBaselineContract.ComputeFileSha256(environmentPath)};
+                File.Delete(summaryPath);await AtomicJsonFile.WriteAsync(summaryPath,summary);
+            }
         }
         else
         {
@@ -259,6 +298,9 @@ public sealed class PersistenceEvidenceGateTests
             if(failure=="cancel")summary=summary with{Requests=summary.Requests with{Cancel=1}};
             if(failure=="save")summary=summary with{Requests=summary.Requests with{Save=1}};
             if(failure=="error")summary=summary with{Errors=summary.Errors with{TransportErrors=1}};
+            if(failure=="diagnostics")summary=summary with{Diagnostics=summary.Diagnostics with{BadFrames=1}};
+            if(failure=="strict-latch")summary=summary with{StrictFault=new("Decode",summary.StartedAtUtc,"decoder failed")};
+            if(failure=="generation")summary=summary with{ConnectionGenerationEnd=summary.ConnectionGenerationStart+1};
             File.Delete(summaryPath);await AtomicJsonFile.WriteAsync(summaryPath,summary);
         }
         var calls=0;
@@ -307,7 +349,7 @@ public sealed class PersistenceEvidenceGateTests
         var sessionId=Guid.NewGuid().ToString();var traceFile=$"persistence-session-{sessionId}-request-trace.json";var environmentFile=$"persistence-session-{sessionId}-environment.json";var summaryFile=$"persistence-session-{sessionId}-summary.json";
         var trace=new[]{new ModbusOperationTrace(stabilityStart,stabilityStart,3,0,1,null,true,"AA","BB",null,null,null)};var tracePath=Path.Combine(directory,traceFile);await AtomicJsonFile.WriteAsync(tracePath,trace);
         var environment=new PreflightEnvironmentEvidence(1,workflowId,stabilityStart.AddSeconds(-1),stability.CompletedAtUtc.AddSeconds(1),commit,version,toolHash,"test-os",".NET","x64","test");var environmentPath=Path.Combine(directory,environmentFile);await AtomicJsonFile.WriteAsync(environmentPath,environment);
-        var stats=PersistenceTraceStatistics.FromTrace(trace);var errors=PersistenceTraceErrors.FromTrace(trace);var sessionSummary=new PersistenceSessionSummary(1,sessionId,workflowId,commit,version,toolHash,environment.StartedAtUtc,environment.CompletedAtUtc,(environment.CompletedAtUtc-environment.StartedAtUtc).TotalMilliseconds,new(1,1,0,1,0),stats,errors,0,"COMPLETE_STABILITY_PASS",null,traceFile,PersistenceBaselineContract.ComputeFileSha256(tracePath),environmentFile,PersistenceBaselineContract.ComputeFileSha256(environmentPath),"final-stability.json",PersistenceBaselineContract.ComputeFileSha256(stabilityPath));var sessionSummaryPath=Path.Combine(directory,summaryFile);await AtomicJsonFile.WriteAsync(sessionSummaryPath,sessionSummary);
+        var stats=PersistenceTraceStatistics.FromTrace(trace);var errors=PersistenceTraceErrors.FromTrace(trace);var diagnostics=new CommunicationDiagnosticsSnapshot(1,1,0,0,0,0,0,0,0,0,0);var sessionSummary=new PersistenceSessionSummary(2,sessionId,workflowId,commit,version,toolHash,environment.StartedAtUtc,environment.CompletedAtUtc,(environment.CompletedAtUtc-environment.StartedAtUtc).TotalMilliseconds,new(1,1,0,1,0),stats,errors,diagnostics,null,0,1,1,"COMPLETE_STABILITY_PASS",null,traceFile,PersistenceBaselineContract.ComputeFileSha256(tracePath),environmentFile,PersistenceBaselineContract.ComputeFileSha256(environmentPath),"final-stability.json",PersistenceBaselineContract.ComputeFileSha256(stabilityPath));var sessionSummaryPath=Path.Combine(directory,summaryFile);await AtomicJsonFile.WriteAsync(sessionSummaryPath,sessionSummary);
         return new(workflowId,directory,preflight.Now,sessionSummaryPath);
     }
 
@@ -363,6 +405,7 @@ public sealed class PersistenceEvidenceGateTests
     }
     private sealed record CreatedEvidence(string WorkflowId, string Directory, DateTimeOffset Now, PreflightSummary Summary);
     private sealed record CompleteEvidence(string WorkflowId,string Directory,DateTimeOffset Now,string SessionSummaryPath);
+    private static async Task WaitUntilAsync(Func<bool> condition){var deadline=DateTime.UtcNow.AddSeconds(2);while(!condition()&&DateTime.UtcNow<deadline)await Task.Delay(5);Assert.True(condition());}
     private sealed class RunnerClock(DateTimeOffset now):IPersistenceClock
     {
         public DateTimeOffset UtcNow{get;private set;}=now;
@@ -375,20 +418,23 @@ public sealed class PersistenceEvidenceGateTests
     }
     private sealed class PersistenceTransport(IEnumerable<ushort> baseline):IModbusTransport
     {
+        private readonly TaskCompletionSource firstRealtime=new(TaskCreationOptions.RunContinuationsAsynchronously);
         private ushort[] staging=baseline.ToArray();private ushort responseToken;private ushort lastCommand;
         private bool dirty;private uint currentRevision=10;private uint savedRevision=10;private ushort activeSlot=1;private uint activeSequence=7;
-        public ushort[] Active{get;private set;}=baseline.ToArray();public int SaveCount{get;private set;}public bool IsOpen{get;private set;}public string Endpoint=>"memory://persistence";
+        public ushort[] Active{get;private set;}=baseline.ToArray();public int SaveCount{get;private set;}public int RealtimeAttempts{get;private set;}public bool HoldFirstRealtime{get;init;}public bool IsOpen{get;private set;}public string Endpoint=>"memory://persistence";
         public Task OpenAsync(CancellationToken cancellationToken){cancellationToken.ThrowIfCancellationRequested();IsOpen=true;return Task.CompletedTask;}
         public Task CloseAsync(){IsOpen=false;return Task.CompletedTask;}
         public ValueTask DisposeAsync(){IsOpen=false;return ValueTask.CompletedTask;}
         public void Reboot(){responseToken=0;lastCommand=0;staging=Active.ToArray();}
-        public Task<ModbusExchangeResult> ExchangeAsync(byte unitId,ReadOnlyMemory<byte> pdu,CancellationToken cancellationToken)
+        public void ReleaseFirstRealtime()=>firstRealtime.TrySetResult();
+        public async Task<ModbusExchangeResult> ExchangeAsync(byte unitId,ReadOnlyMemory<byte> pdu,CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();var request=pdu.ToArray();
+            await Task.Yield();cancellationToken.ThrowIfCancellationRequested();var request=pdu.ToArray();
             if(request[0]==3)
             {
                 var address=(ushort)(request[1]<<8|request[2]);var count=(ushort)(request[3]<<8|request[4]);
-                var response=ReadResponse(Read(address,count));return Task.FromResult(new ModbusExchangeResult(response,request,response));
+                if(address==0&&++RealtimeAttempts==1&&HoldFirstRealtime)await firstRealtime.Task.WaitAsync(cancellationToken);
+                var response=ReadResponse(Read(address,count));return new ModbusExchangeResult(response,request,response);
             }
             if(request[0]==16)
             {
@@ -397,7 +443,7 @@ public sealed class PersistenceEvidenceGateTests
                 if(address>=0x0140&&address+quantity<=0x0180)Array.Copy(values,0,staging,address-0x0140,quantity);
                 else if(address==0x0040){responseToken=values[0];lastCommand=values[1];Execute(lastCommand);}
                 else throw new InvalidOperationException("Unexpected fake write.");
-                var response=new[]{(byte)16,request[1],request[2],request[3],request[4]};return Task.FromResult(new ModbusExchangeResult(response,request,response));
+                var response=new[]{(byte)16,request[1],request[2],request[3],request[4]};return new ModbusExchangeResult(response,request,response);
             }
             throw new InvalidOperationException("Unexpected fake function.");
         }

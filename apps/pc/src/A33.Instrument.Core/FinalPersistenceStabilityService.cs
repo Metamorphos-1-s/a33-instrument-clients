@@ -36,7 +36,7 @@ public static class FinalStabilityReportValidator
             if(sample is null||sample.ActiveRegisters is null||sample.ActiveRegisterCount!=64||!sample.ActiveRegisters.SequenceEqual(baseline.Manifest.ActiveRegisters)||
                 sample.ActiveSha256!=baseline.Manifest.ActiveArraySha256||sample.Brightness!=ConfigurationPersistenceService.OriginalBrightness||
                 sample.CapturedAtUtc.Offset!=TimeSpan.Zero||sample.CapturedAtUtc<report.StartedAtUtc||sample.CapturedAtUtc>report.CompletedAtUtc||
-                (previous.HasValue&&(sample.CapturedAtUtc<previous.Value||sample.CapturedAtUtc-previous.Value>TimeSpan.FromSeconds(2)))||
+                (previous.HasValue&&(sample.CapturedAtUtc<=previous.Value||sample.CapturedAtUtc-previous.Value>TimeSpan.FromSeconds(2)))||
                 sample.Mailbox is null||sample.Mailbox.Busy||sample.Mailbox.Pending||sample.ConfigStore is null||!sample.ConfigStore.StatesKnown||
                 !sample.ConfigStore.StatesConsistent||sample.ConfigStore.State!=ConfigStoreState.Idle||sample.ConfigStore.ConfigDirty||
                 sample.ConfigStore.CurrentRevision!=report.Expectation.CurrentRevision||sample.ConfigStore.SavedRevision!=report.Expectation.SavedRevision||
@@ -46,7 +46,8 @@ public static class FinalStabilityReportValidator
                 throw new InvalidDataException("Final stability report contains an invalid sample.");
             previous=sample.CapturedAtUtc;
         }
-        if(report.Samples[0].CapturedAtUtc-report.StartedAtUtc>TimeSpan.FromSeconds(2)||report.Samples[^1].CapturedAtUtc-report.StartedAtUtc<TimeSpan.FromSeconds(600))
+        if(report.Samples[0].CapturedAtUtc-report.StartedAtUtc>TimeSpan.FromSeconds(2)||report.Samples[^1].CapturedAtUtc-report.StartedAtUtc<TimeSpan.FromSeconds(600)||
+            report.CompletedAtUtc-report.Samples[^1].CapturedAtUtc>TimeSpan.FromSeconds(2))
             throw new InvalidDataException("Final stability samples do not cover the full fixed-rate window.");
     }
 }
