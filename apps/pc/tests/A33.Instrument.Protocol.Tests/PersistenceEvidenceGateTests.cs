@@ -58,6 +58,38 @@ public sealed class PersistenceEvidenceGateTests
         Assert.Equal(created.Summary.ToolSha256, environment.ToolSha256); Assert.Equal(TimeSpan.Zero, environment.StartedAtUtc.Offset); Assert.Equal(TimeSpan.Zero, environment.CompletedAtUtc.Offset);
     }
 
+    [Theory][InlineData("strict")][InlineData("diagnostics")]
+    public async Task DirtyWaitingSessionBlocksRecoveryBeforeNewConnection(string failure)
+    {
+        using var files=new TempDirectory();var assembly=typeof(PersistenceHardwareRunner).Assembly;var commit=assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(x=>x.Key=="GitCommit").Value!;var version=assembly.GetName().Version!.ToString();var toolHash=PersistenceBaselineContract.ComputeFileSha256(assembly.Location);
+        var preflight=await CreateEvidenceAsync(files.Root,s=>s with{ToolAssemblyVersion=version,ToolSha256=toolHash},clientCommit:commit);var hardware=new PersistenceTransport(Baseline().Manifest.ActiveRegisters);var calls=0;
+        InstrumentMonitoringService Factory(){calls++;return new(new SingleTransportFactory(hardware));}
+        Assert.Equal(20,await PersistenceHardwareRunner.RunAsync(AuthorizedArgs(preflight.WorkflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(1)));
+        var journalPath=Directory.GetFiles(files.Root,"persistence-journal.json",SearchOption.AllDirectories).Single();var journal=await PersistenceJournalStore.ReadAsync(journalPath);
+        var summaryPath=Directory.GetFiles(Path.GetDirectoryName(journalPath)!,"persistence-session-*-summary.json").Single();var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath);
+        summary=failure=="strict"?summary with{StrictFault=new("Decode",summary.StartedAtUtc,"failed")}:summary with{Diagnostics=summary.Diagnostics with{BadFrames=1}};
+        File.Delete(summaryPath);await AtomicJsonFile.WriteAsync(summaryPath,summary);hardware.Reboot();
+        await Assert.ThrowsAnyAsync<Exception>(()=>PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(journal.WorkflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(2)));
+        Assert.Equal(1,calls);Assert.Equal(1,hardware.SaveCount);
+    }
+
+    [Theory][InlineData("missing-a")][InlineData("missing-b")][InlineData("second-save-a")][InlineData("save-final")][InlineData("time-order")]
+    public async Task ThreeSessionIntegrityConflictFailsCompleteOffline(string failure)
+    {
+        using var files=new TempDirectory();var complete=await CreateCompleteEvidenceAsync(files.Root);
+        var summaries=Directory.GetFiles(complete.Directory,"persistence-session-*-summary.json").Select(path=>(path,summary:AtomicJsonFile.Read<PersistenceSessionSummary>(path))).ToArray();
+        var a=summaries.Single(x=>x.summary.Phase==PersistencePhase.WaitingForFirstReboot.ToString());var b=summaries.Single(x=>x.summary.Phase==PersistencePhase.WaitingForSecondReboot.ToString());var final=summaries.Single(x=>x.summary.Phase=="COMPLETE_STABILITY_PASS");
+        if(failure=="missing-a")File.Delete(a.path);else if(failure=="missing-b")File.Delete(b.path);else
+        {
+            var target=failure=="second-save-a"?a:failure=="save-final"?final:a;var changed=target.summary;
+            if(failure=="second-save-a")changed=changed with{Requests=changed.Requests with{Save=2}};
+            if(failure=="save-final")changed=changed with{Requests=changed.Requests with{Save=1}};
+            if(failure=="time-order")changed=changed with{CompletedAtUtc=b.summary.StartedAtUtc.AddSeconds(1),DurationMs=(b.summary.StartedAtUtc.AddSeconds(1)-changed.StartedAtUtc).TotalMilliseconds};
+            File.Delete(target.path);await AtomicJsonFile.WriteAsync(target.path,changed);
+        }
+        var calls=0;await Assert.ThrowsAnyAsync<Exception>(()=>PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(complete.WorkflowId),()=>{calls++;return new();},files.Root,()=>complete.Now.AddHours(1)));Assert.Equal(0,calls);
+    }
+
     [Theory]
     [InlineData("commit")] [InlineData("start-time")] [InlineData("end-time")] [InlineData("reversed-time")] [InlineData("non-utc")]
     [InlineData("version")] [InlineData("tool-hash")] [InlineData("missing-os")] [InlineData("workflow")]
@@ -346,12 +378,24 @@ public sealed class PersistenceEvidenceGateTests
         var expectation=FinalPersistenceExpectation.FromCycleB(journal);var stabilityStart=rebootB.CapturedAtUtc.AddSeconds(1);
         var samples=Enumerable.Range(0,601).Select(i=>new FinalStabilitySample(stabilityStart.AddSeconds(i),active3.ToArray(),baseline.Manifest.ActiveArraySha256,3,storeB1,mailbox)).ToArray();
         var stability=new FinalStabilityReport(stabilityStart,stabilityStart.AddSeconds(600),600,true,expectation,[],samples);var stabilityPath=Path.Combine(directory,"final-stability.json");await AtomicJsonFile.WriteAsync(stabilityPath,stability);
+        await WriteCycleSessionAsync(directory,workflowId,commit,version,toolHash,PersistencePhase.WaitingForFirstReboot,at.AddSeconds(-30),4);
+        await WriteCycleSessionAsync(directory,workflowId,commit,version,toolHash,PersistencePhase.WaitingForSecondReboot,at.AddSeconds(10),5);
         var sessionId=Guid.NewGuid().ToString();var traceFile=$"persistence-session-{sessionId}-request-trace.json";var environmentFile=$"persistence-session-{sessionId}-environment.json";var summaryFile=$"persistence-session-{sessionId}-summary.json";
         var trace=new[]{new ModbusOperationTrace(stabilityStart,stabilityStart,3,0,1,null,true,"AA","BB",null,null,null)};var tracePath=Path.Combine(directory,traceFile);await AtomicJsonFile.WriteAsync(tracePath,trace);
         var environment=new PreflightEnvironmentEvidence(1,workflowId,stabilityStart.AddSeconds(-1),stability.CompletedAtUtc.AddSeconds(1),commit,version,toolHash,"test-os",".NET","x64","test");var environmentPath=Path.Combine(directory,environmentFile);await AtomicJsonFile.WriteAsync(environmentPath,environment);
         var stats=PersistenceTraceStatistics.FromTrace(trace);var errors=PersistenceTraceErrors.FromTrace(trace);var diagnostics=new CommunicationDiagnosticsSnapshot(1,1,0,0,0,0,0,0,0,0,0);var sessionSummary=new PersistenceSessionSummary(2,sessionId,workflowId,commit,version,toolHash,environment.StartedAtUtc,environment.CompletedAtUtc,(environment.CompletedAtUtc-environment.StartedAtUtc).TotalMilliseconds,new(1,1,0,1,0),stats,errors,diagnostics,null,0,1,1,"COMPLETE_STABILITY_PASS",null,traceFile,PersistenceBaselineContract.ComputeFileSha256(tracePath),environmentFile,PersistenceBaselineContract.ComputeFileSha256(environmentPath),"final-stability.json",PersistenceBaselineContract.ComputeFileSha256(stabilityPath));var sessionSummaryPath=Path.Combine(directory,summaryFile);await AtomicJsonFile.WriteAsync(sessionSummaryPath,sessionSummary);
         return new(workflowId,directory,preflight.Now,sessionSummaryPath);
     }
+    private static async Task WriteCycleSessionAsync(string directory,string workflowId,string commit,string version,string toolHash,PersistencePhase phase,DateTimeOffset started,ushort saveToken)
+    {
+        var id=Guid.NewGuid().ToString();var traceFile=$"persistence-session-{id}-request-trace.json";var environmentFile=$"persistence-session-{id}-environment.json";
+        var trace=new[]{Trace16(0x0040,12,9,1),Trace16(0x0156,1,null,0),Trace16(0x0040,12,10,2),Trace16(0x0040,12,11,3),Trace16(0x0040,12,13,saveToken)}.Select((x,i)=>x with{StartedAtUtc=started.AddMilliseconds(i),CompletedAtUtc=started.AddMilliseconds(i+1)}).ToArray();
+        var tracePath=Path.Combine(directory,traceFile);await AtomicJsonFile.WriteAsync(tracePath,trace);var completed=started.AddSeconds(1);
+        var environment=new PreflightEnvironmentEvidence(1,workflowId,started,completed,commit,version,toolHash,"test-os",".NET","x64","test");var environmentPath=Path.Combine(directory,environmentFile);await AtomicJsonFile.WriteAsync(environmentPath,environment);
+        var summary=new PersistenceSessionSummary(2,id,workflowId,commit,version,toolHash,started,completed,1000,new(1,1,0,1,0),PersistenceTraceStatistics.FromTrace(trace),PersistenceTraceErrors.FromTrace(trace),new(5,5,0,0,0,0,0,0,0,0,0),null,0,1,1,phase.ToString(),null,traceFile,PersistenceBaselineContract.ComputeFileSha256(tracePath),environmentFile,PersistenceBaselineContract.ComputeFileSha256(environmentPath),null,null);
+        await AtomicJsonFile.WriteAsync(Path.Combine(directory,$"persistence-session-{id}-summary.json"),summary);
+    }
+    private static ModbusOperationTrace Trace16(ushort address,ushort quantity,ushort? command,ushort token){var bytes=new byte[6+quantity*2];bytes[0]=16;bytes[1]=(byte)(address>>8);bytes[2]=(byte)address;bytes[3]=(byte)(quantity>>8);bytes[4]=(byte)quantity;bytes[5]=(byte)(quantity*2);if(quantity>0){bytes[6]=(byte)(token>>8);bytes[7]=(byte)token;}if(command.HasValue){bytes[8]=(byte)(command.Value>>8);bytes[9]=(byte)command.Value;}return new(default,default,16,address,quantity,command,true,Convert.ToHexString(bytes),"BB",null,null,null);}
 
     private static StrictPreflightReport Report()
     {

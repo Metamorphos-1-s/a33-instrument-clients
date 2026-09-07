@@ -38,6 +38,15 @@ public sealed record PersistenceSessionSummary(
 
 public static class PersistenceCompletionEvidenceValidator
 {
+    public static void ValidateWaitingSession(string directory,PersistenceJournal journal,PersistencePhase waitingPhase,string clientCommit,string toolVersion,string toolSha256)
+    {
+        if(journal.Phase!=waitingPhase)throw new InvalidDataException("Journal waiting phase does not match the completed session.");
+        var matches=ReadSummaries(directory).Where(x=>x.Summary.Phase==waitingPhase.ToString()).ToArray();
+        if(matches.Length!=1)throw new InvalidDataException("A unique clean waiting session is required before manual reboot.");
+        ValidateCommon(directory,matches[0],journal.WorkflowId,clientCommit,toolVersion,toolSha256);
+        ValidateWriteSession(matches[0].Summary);
+    }
+
     public static void Validate(string directory,string workflowId,PersistenceJournal journal,TrustedPersistenceBaseline baseline,string clientCommit,string toolVersion,string toolSha256)
     {
         PersistenceJournalStore.Validate(journal,Path.Combine(directory,"persistence-journal.json"));
@@ -52,22 +61,24 @@ public static class PersistenceCompletionEvidenceValidator
         var expected=FinalPersistenceExpectation.FromCycleB(journal);
         if(stability.Expectation!=expected||stability.StartedAtUtc<journal.CycleBEvidence!.RebootEvidence!.CapturedAtUtc)
             throw new InvalidDataException("Final stability is not bound to the Cycle B second-reboot result.");
-        var summaries=Directory.GetFiles(directory,"persistence-session-*-summary.json")
-            .Select(path=>(Path:path,Summary:AtomicJsonFile.Read<PersistenceSessionSummary>(path)))
-            .Where(x=>x.Summary.Phase=="COMPLETE_STABILITY_PASS"&&x.Summary.FinalStabilityFile=="final-stability.json").ToArray();
-        if(summaries.Length!=1)throw new InvalidDataException("A unique final read-only session summary is required.");
-        var summary=summaries[0].Summary;
-        if(summary.SchemaVersion!=2||summary.WorkflowId!=workflowId||summary.ClientCommit!=clientCommit||summary.ToolAssemblyVersion!=toolVersion||summary.ToolSha256!=toolSha256||
-            Path.GetFileName(summaries[0].Path)!=$"persistence-session-{summary.SessionId}-summary.json"||summary.StartedAtUtc.Offset!=TimeSpan.Zero||
-            summary.CompletedAtUtc.Offset!=TimeSpan.Zero||summary.CompletedAtUtc<summary.StartedAtUtc||Math.Abs((summary.CompletedAtUtc-summary.StartedAtUtc).TotalMilliseconds-summary.DurationMs)>0.01||
-            summary.Error is not null||summary.AutomaticReconnects!=0||summary.StrictFault is not null||summary.Diagnostics is null||!summary.Diagnostics.IsClean||
-            summary.ConnectionGenerationStart<=0||summary.ConnectionGenerationEnd!=summary.ConnectionGenerationStart||summary.Connections is not{ConnectionAttempts:1,ConnectionSucceeded:1,ConnectionFailed:0,Disconnects:1,AutomaticRetries:0}||
+        var all=ReadSummaries(directory);if(all.Length!=3)throw new InvalidDataException("Complete evidence requires exactly three formal sessions.");
+        var cycleA=all.SingleOrDefault(x=>x.Summary.Phase==PersistencePhase.WaitingForFirstReboot.ToString());
+        var cycleB=all.SingleOrDefault(x=>x.Summary.Phase==PersistencePhase.WaitingForSecondReboot.ToString());
+        var final=all.SingleOrDefault(x=>x.Summary.Phase=="COMPLETE_STABILITY_PASS"&&x.Summary.FinalStabilityFile=="final-stability.json");
+        if(cycleA==default||cycleB==default||final==default)throw new InvalidDataException("Cycle A, Cycle B and final sessions must each be unique.");
+        foreach(var item in all)ValidateCommon(directory,item,workflowId,clientCommit,toolVersion,toolSha256);
+        ValidateWriteSession(cycleA.Summary);ValidateWriteSession(cycleB.Summary);
+        ValidateSaveToken(directory,cycleA.Summary,journal.CycleAEvidence.SaveToken,journal.CycleAEvidence.MailboxTokens);
+        ValidateSaveToken(directory,cycleB.Summary,journal.CycleBEvidence!.SaveToken,journal.CycleBEvidence.MailboxTokens);
+        if(cycleA.Summary.CompletedAtUtc>cycleB.Summary.StartedAtUtc||cycleB.Summary.CompletedAtUtc>final.Summary.StartedAtUtc||
+            cycleA.Summary.Requests.Save+cycleB.Summary.Requests.Save+final.Summary.Requests.Save!=2)
+            throw new InvalidDataException("Formal persistence session order or SAVE total is invalid.");
+        var summary=final.Summary;
+        if(
             summary.Requests.Fc03Attempted<=0||summary.Requests.Fc03Attempted!=summary.Requests.Fc03Succeeded||summary.Requests.Fc03Failed!=0||
             summary.Requests.Fc06Attempted!=0||summary.Requests.Fc16Attempted!=0||summary.Requests.StagingWrites!=0||summary.Requests.MailboxWrites!=0||
             summary.Requests.Begin!=0||summary.Requests.Validate!=0||summary.Requests.Apply!=0||summary.Requests.Cancel!=0||summary.Requests.Save!=0||!summary.Errors.IsClean)
             throw new InvalidDataException("Final read-only session counters are not clean.");
-        if(summary.TraceFile!=$"persistence-session-{summary.SessionId}-request-trace.json"||summary.EnvironmentFile!=$"persistence-session-{summary.SessionId}-environment.json")
-            throw new InvalidDataException("Final session filenames are not bound to its session ID.");
         var tracePath=BoundPath(directory,summary.TraceFile);var environmentPath=BoundPath(directory,summary.EnvironmentFile);var boundStability=BoundPath(directory,summary.FinalStabilityFile!);
         if(PersistenceBaselineContract.ComputeFileSha256(tracePath)!=summary.TraceSha256||PersistenceBaselineContract.ComputeFileSha256(environmentPath)!=summary.EnvironmentSha256||
             PersistenceBaselineContract.ComputeFileSha256(boundStability)!=summary.FinalStabilitySha256)
@@ -77,10 +88,36 @@ public static class PersistenceCompletionEvidenceValidator
             trace.Length!=summary.Requests.Fc03Attempted||trace.Any(x=>x.FunctionCode!=3||!x.Succeeded||x.ErrorCategory is not null||x.Error is not null||
                 x.StartedAtUtc.Offset!=TimeSpan.Zero||x.CompletedAtUtc.Offset!=TimeSpan.Zero||x.StartedAtUtc<summary.StartedAtUtc||x.CompletedAtUtc>summary.CompletedAtUtc||x.CompletedAtUtc<x.StartedAtUtc))
             throw new InvalidDataException("Final session trace semantics mismatch.");
-        var environment=AtomicJsonFile.Read<PreflightEnvironmentEvidence>(environmentPath);
-        EvidenceEnvironmentValidator.Validate(environment,workflowId,summary.StartedAtUtc,summary.CompletedAtUtc,summary.DurationMs,clientCommit,toolVersion,toolSha256);
         if(stability.StartedAtUtc<summary.StartedAtUtc||stability.CompletedAtUtc>summary.CompletedAtUtc)
             throw new InvalidDataException("Final session environment or timing binding mismatch.");
+    }
+    private static (string Path,PersistenceSessionSummary Summary)[] ReadSummaries(string directory)=>Directory.GetFiles(directory,"persistence-session-*-summary.json").Select(path=>(path,AtomicJsonFile.Read<PersistenceSessionSummary>(path))).ToArray();
+    private static void ValidateWriteSession(PersistenceSessionSummary summary)
+    {
+        var r=summary.Requests;if(r.Begin!=1||r.Validate!=1||r.Apply!=1||r.Cancel!=0||r.Save!=1||r.StagingWrites!=1||r.MailboxWrites!=4||
+            r.Fc06Attempted!=0||r.Fc16Attempted!=5||r.Fc16Succeeded!=5||r.Fc16Failed!=0)
+            throw new InvalidDataException("Cycle session command shape is invalid.");
+    }
+    private static void ValidateSaveToken(string directory,PersistenceSessionSummary summary,ushort? expectedToken,ushort[] tokens)
+    {
+        var trace=AtomicJsonFile.Read<ModbusOperationTrace[]>(BoundPath(directory,summary.TraceFile));var save=trace.SingleOrDefault(x=>x.MailboxCommandId==13);var staging=trace.SingleOrDefault(x=>x.FunctionCode==16&&x.Address>=0x0140&&x.Address<=0x017F);
+        if(staging is null||staging.Address!=0x0156||staging.Quantity!=1)throw new InvalidDataException("Cycle Staging trace is not the fixed brightness write.");
+        if(save is null||!expectedToken.HasValue||tokens is null||!tokens.Contains(expectedToken.Value))throw new InvalidDataException("Cycle SAVE token evidence is missing.");
+        var bytes=Convert.FromHexString(save.RequestHex);var pdu=bytes.Length>7&&bytes[7]==16?7:0;var offset=pdu+6;
+        if(bytes.Length<offset+2||(ushort)(bytes[offset]<<8|bytes[offset+1])!=expectedToken.Value)throw new InvalidDataException("Cycle SAVE trace token conflicts with the journal.");
+    }
+    private static void ValidateCommon(string directory,(string Path,PersistenceSessionSummary Summary) item,string workflowId,string clientCommit,string toolVersion,string toolSha256)
+    {
+        var s=item.Summary;if(s.SchemaVersion!=2||s.WorkflowId!=workflowId||s.ClientCommit!=clientCommit||s.ToolAssemblyVersion!=toolVersion||s.ToolSha256!=toolSha256||
+            Path.GetFileName(item.Path)!=$"persistence-session-{s.SessionId}-summary.json"||s.TraceFile!=$"persistence-session-{s.SessionId}-request-trace.json"||s.EnvironmentFile!=$"persistence-session-{s.SessionId}-environment.json"||
+            s.StartedAtUtc.Offset!=TimeSpan.Zero||s.CompletedAtUtc.Offset!=TimeSpan.Zero||s.CompletedAtUtc<s.StartedAtUtc||Math.Abs((s.CompletedAtUtc-s.StartedAtUtc).TotalMilliseconds-s.DurationMs)>1||
+            s.Error is not null||s.AutomaticReconnects!=0||s.StrictFault is not null||s.Diagnostics is null||!s.Diagnostics.IsClean||!s.Errors.IsClean||
+            s.ConnectionGenerationStart<=0||s.ConnectionGenerationEnd!=s.ConnectionGenerationStart||s.Connections is not{ConnectionAttempts:1,ConnectionSucceeded:1,ConnectionFailed:0,Disconnects:1,AutomaticRetries:0})
+            throw new InvalidDataException("Persistence session integrity is invalid.");
+        var tracePath=BoundPath(directory,s.TraceFile);var environmentPath=BoundPath(directory,s.EnvironmentFile);
+        if(PersistenceBaselineContract.ComputeFileSha256(tracePath)!=s.TraceSha256||PersistenceBaselineContract.ComputeFileSha256(environmentPath)!=s.EnvironmentSha256)throw new InvalidDataException("Persistence session evidence hash mismatch.");
+        var trace=AtomicJsonFile.Read<ModbusOperationTrace[]>(tracePath);if(PersistenceTraceStatistics.FromTrace(trace)!=s.Requests||PersistenceTraceErrors.FromTrace(trace)!=s.Errors||trace.Any(x=>!x.Succeeded))throw new InvalidDataException("Persistence session trace semantics mismatch.");
+        EvidenceEnvironmentValidator.Validate(AtomicJsonFile.Read<PreflightEnvironmentEvidence>(environmentPath),workflowId,s.StartedAtUtc,s.CompletedAtUtc,s.DurationMs,clientCommit,toolVersion,toolSha256);
     }
     private static string BoundPath(string directory,string file){if(Path.GetFileName(file)!=file)throw new InvalidDataException("Evidence filename is not local.");var path=Path.Combine(directory,file);if(!File.Exists(path))throw new InvalidDataException($"Evidence file is missing: {file}");return path;}
 }

@@ -233,6 +233,13 @@ unexpected disconnect, generation change or reconnect permanently latches the
 first UTC error. Later successful reads cannot clear it. Normal WPF monitoring
 does not enable this mode and retains its existing Degraded/reconnect behavior.
 
+Strict background errors are published while polling still owns the shared
+gate. Diagnostics, the first-error latch, Faulted state and Fresh Snapshot
+waiter notification therefore become visible before a queued write can enter.
+A failed Modbus request is counted once by the request observer; the outer
+monitor path records only decode, slow-poll, event-handler or other internal
+failures that have no failed request trace.
+
 Session cleanliness is not inferred from one counter source. The atomic
 summary binds actual request trace statistics, a serializable
 `CommunicationDiagnostics` snapshot, the strict latch, reconnect count,
@@ -240,6 +247,15 @@ connection generation and connection/disconnection counts. Write sessions
 record their legitimate commands; the final read-only session additionally
 requires all three error views clean, continuous generation, zero reconnect,
 all FC03 successful, and every write/command count zero.
+
+Entering a Waiting phase does not authorize a reboot by itself. The runner
+first stops the session and atomically writes its trace, environment and
+summary, then validates connection 1/1/0/1, generation continuity, zero
+reconnect, clean trace/Diagnostics/latch, successful requests and the exact
+Cycle command shape. Only then does it print `MANUAL_REBOOT_REQUIRED` and
+return 20. Failure prints `DO_NOT_REBOOT`, returns 24 and preserves all
+evidence. Recovery validates the preceding Waiting session before creating a
+Transport, so it cannot automatically cross an unclean session.
 
 After reboot 1, before cycle B writes, the client requires Mailbox token 0,
 IDLE/clean ConfigStore, and exact slot/sequence/revision continuity with cycle A
@@ -280,3 +296,12 @@ WPF product feature. After Stage 2B hardware closure it should be frozen;
 Stage 2C may evaluate physically separating Validation/Evidence code from the
 product Core while implementing general configuration, calibration and other
 interfaces.
+
+A Complete PASS requires exactly three ordered formal sessions: Cycle A ending
+at `WaitingForFirstReboot`, Cycle B ending at `WaitingForSecondReboot`, and the
+final `COMPLETE_STABILITY_PASS` session. Each Cycle has one BEGIN, one
+brightness Staging write, one VALIDATE, one APPLY and one SAVE; CANCEL and FC06
+are zero. The final session permits only FC03. The offline validator binds all
+three IDs, files, hashes, environments, traces and tool identities, and
+requires exactly two aggregate SAVE commands. Missing, extra or recovery
+sessions require independent review and cannot become formal PASS.

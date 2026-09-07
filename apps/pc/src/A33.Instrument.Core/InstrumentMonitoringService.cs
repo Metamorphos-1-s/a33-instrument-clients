@@ -44,13 +44,15 @@ public sealed class InstrumentMonitoringService(IModbusTransportFactory? transpo
         var clock=Stopwatch.StartNew();long nextFast=0,nextSlow=0;
         while(!token.IsCancellationRequested&&expectedGeneration==generation)
         {
-            try{var now=clock.ElapsedMilliseconds;if(now>=nextFast||now>=nextSlow){await commandGate.WaitAsync(token);try{if(now>=nextFast){await PollRealtimeAsync(token);nextFast=now+options!.PollIntervalMs;}if(now>=nextSlow){await PollSlowAndCheckweighAsync(token);nextSlow=now+1000;}}finally{commandGate.Release();}}if(State==MonitoringConnectionState.Degraded)SetState(MonitoringConnectionState.Monitoring);var delay=Math.Max(10,Math.Min(nextFast,nextSlow)-clock.ElapsedMilliseconds);await Task.Delay(TimeSpan.FromMilliseconds(delay),token);}
+            try{var now=clock.ElapsedMilliseconds;if(now>=nextFast||now>=nextSlow){await commandGate.WaitAsync(token);var healthy=true;try{if(now>=nextFast){await PollRealtimeAsync(token);nextFast=now+options!.PollIntervalMs;}if(now>=nextSlow){await PollSlowAndCheckweighAsync(token);nextSlow=now+1000;}}catch(Exception error)when(options?.StrictSession==true&&!(error is OperationCanceledException&&token.IsCancellationRequested)){PublishStrictMonitorError(error);healthy=false;}finally{commandGate.Release();}if(!healthy)break;}if(State==MonitoringConnectionState.Degraded)SetState(MonitoringConnectionState.Monitoring);var delay=Math.Max(10,Math.Min(nextFast,nextSlow)-clock.ElapsedMilliseconds);await Task.Delay(TimeSpan.FromMilliseconds(delay),token);}
             catch(OperationCanceledException)when(token.IsCancellationRequested){break;}
-            catch(OperationCanceledException error){Diagnostics.Error(error);Latch("MonitorLoop",error.Message);if(options?.StrictSession==true){SetState(MonitoringConnectionState.Faulted);freshSnapshot?.TrySetException(error);break;}SetState(MonitoringConnectionState.Degraded);await Task.Delay(50,token);}
-            catch(Exception error)when(error is IOException or SocketException or InvalidOperationException){Diagnostics.Error(error);Latch(error is MonitoringDecodeException?"Decode":"MonitorLoop",error.Message);if(options?.StrictSession==true){SetState(MonitoringConnectionState.Faulted);freshSnapshot?.TrySetException(error);break;}if(!await TryReconnectAsync(expectedGeneration,token))break;}
-            catch(Exception error){Diagnostics.Error(error);Latch(error is MonitoringDecodeException?"Decode":"MonitorLoop",error.Message);if(options?.StrictSession==true){SetState(MonitoringConnectionState.Faulted);freshSnapshot?.TrySetException(error);break;}SetState(MonitoringConnectionState.Degraded);await Task.Delay(50,token);}
+            catch(OperationCanceledException error){RecordMonitorErrorOnce(error);SetState(MonitoringConnectionState.Degraded);await Task.Delay(50,token);}
+            catch(Exception error)when(error is IOException or SocketException or InvalidOperationException){RecordMonitorErrorOnce(error);if(!await TryReconnectAsync(expectedGeneration,token))break;}
+            catch(Exception error){RecordMonitorErrorOnce(error);SetState(MonitoringConnectionState.Degraded);await Task.Delay(50,token);}
         }
     }
+    private void PublishStrictMonitorError(Exception error){RecordMonitorErrorOnce(error);Latch(error is MonitoringDecodeException?"Decode":"MonitorLoop",error.Message);State=MonitoringConnectionState.Faulted;freshSnapshot?.TrySetException(error);}
+    private void RecordMonitorErrorOnce(Exception error){var last=OperationTrace.LastOrDefault();if(last is null||last.Succeeded||last.Error!=error.Message)Diagnostics.Error(error);}
 
     private async Task PollRealtimeAsync(CancellationToken token)
     {

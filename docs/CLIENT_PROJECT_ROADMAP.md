@@ -52,6 +52,12 @@ communication diagnostics, strict latch, reconnect and connection generation
 jointly determine session cleanliness. Normal WPF monitoring keeps its existing
 Degraded recovery behavior.
 
+Strict monitor errors are atomically published before the shared request gate
+is released, and each failed request contributes exactly one Diagnostics
+error. Manual reboot permission is emitted only after the Waiting session
+trace, environment and summary are written and validated. Recovery validates
+that prior session offline before opening a Transport.
+
 Final stability evidence must cover the beginning, middle and tail of the full
 600-second UTC window without reversed timestamps or sampling gaps. Complete
 replay remains a zero-connection operation and validates the full journal,
@@ -60,3 +66,9 @@ Stage 2B hardware closure, Validation/Evidence should be frozen as a laboratory
 tool. Any physical assembly separation from product Core is deferred for Stage
 2C together with productized general configuration, calibration and additional
 interfaces.
+
+Formal Stage 2B completion is deliberately limited to exactly three ordered,
+clean sessions: Cycle A, Cycle B and final stability. Their command shapes and
+aggregate two-SAVE budget must match the journal and traces. Missing, duplicate,
+extra or conflicting sessions are preserved for independent review and are not
+accepted by the Complete fast path.

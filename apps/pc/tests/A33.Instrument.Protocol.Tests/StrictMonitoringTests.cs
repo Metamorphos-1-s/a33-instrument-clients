@@ -46,7 +46,7 @@ public sealed class StrictMonitoringTests
         await using var monitoring=Service(transport);await monitoring.ConnectAsync(Options());await monitoring.StartMonitoringAsync();
         await Assert.ThrowsAnyAsync<Exception>(()=>monitoring.WaitForFreshSnapshotAsync(TimeSpan.FromSeconds(1)));
         Assert.Equal(category,monitoring.StrictFault?.Category);Assert.Equal(MonitoringConnectionState.Faulted,monitoring.State);
-        Assert.False(monitoring.Diagnostics.Snapshot().IsClean);Assert.Equal(0,transport.Fc16Count);Assert.Equal(1,transport.CreateGeneration);
+        Assert.Equal(1,ErrorCount(monitoring.Diagnostics.Snapshot()));Assert.Equal(0,transport.Fc16Count);Assert.Equal(1,transport.CreateGeneration);
     }
 
     [Fact]
@@ -56,7 +56,29 @@ public sealed class StrictMonitoringTests
         await using var monitoring=Service(transport);await monitoring.ConnectAsync(Options());await monitoring.StartMonitoringAsync();
         await Assert.ThrowsAnyAsync<Exception>(()=>monitoring.WaitForFreshSnapshotAsync(TimeSpan.FromSeconds(1)));
         Assert.Equal("Decode",monitoring.StrictFault?.Category);Assert.Contains(monitoring.OperationTrace,x=>x.FunctionCode==3&&x.Succeeded);
-        Assert.False(monitoring.Diagnostics.Snapshot().IsClean);Assert.Equal(0,transport.Fc16Count);
+        Assert.Equal(1,ErrorCount(monitoring.Diagnostics.Snapshot()));Assert.Equal(0,transport.Fc16Count);
+    }
+
+    [Fact]
+    public async Task QueuedWriteCannotPassDecodeFailurePublishedUnderGate()
+    {
+        var transport=new AsyncTransport();transport.ReleaseFirstRealtime();await using var monitoring=Service(transport);
+        await monitoring.ConnectAsync(Options());await monitoring.StartMonitoringAsync();await monitoring.WaitForFreshSnapshotAsync(TimeSpan.FromSeconds(1));
+        var configuration=new ConfigurationTransactionService(monitoring);await configuration.RefreshAsync();configuration.Edit("brightness",4);
+        transport.InvalidRealtime=true;transport.HoldNextRealtime();await transport.WaitUntilHeldAsync();
+        var queued=configuration.ValidateAsync();transport.ReleaseHeldRealtime();await Assert.ThrowsAsync<InvalidOperationException>(()=>queued);
+        Assert.Equal("Decode",monitoring.StrictFault?.Category);Assert.Equal(1,ErrorCount(monitoring.Diagnostics.Snapshot()));Assert.Equal(0,transport.Fc16Count);
+    }
+
+    [Fact]
+    public async Task QueuedWriteCannotPassMonitoringEventFailurePublishedUnderGate()
+    {
+        var transport=new AsyncTransport();transport.ReleaseFirstRealtime();await using var monitoring=Service(transport);
+        await monitoring.ConnectAsync(Options());await monitoring.StartMonitoringAsync();await monitoring.WaitForFreshSnapshotAsync(TimeSpan.FromSeconds(1));
+        var configuration=new ConfigurationTransactionService(monitoring);await configuration.RefreshAsync();configuration.Edit("brightness",4);
+        transport.HoldNextRealtime();monitoring.Updated+=ThrowUpdate;await transport.WaitUntilHeldAsync();var queued=configuration.ValidateAsync();transport.ReleaseHeldRealtime();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>queued);monitoring.Updated-=ThrowUpdate;Assert.Equal("MonitorLoop",monitoring.StrictFault?.Category);Assert.Equal(1,ErrorCount(monitoring.Diagnostics.Snapshot()));Assert.Equal(0,transport.Fc16Count);
+        void ThrowUpdate(object? sender,EventArgs args)=>throw new InvalidOperationException("updated handler failed");
     }
 
     [Fact]
@@ -89,6 +111,8 @@ public sealed class StrictMonitoringTests
         "BadFrame"=>new ModbusFrameException(ModbusFrameError.Malformed,"bad frame"),_=>new IOException("transport")
     };
     private static int Count(string value,string pattern)=>(value.Length-value.Replace(pattern,"",StringComparison.Ordinal).Length)/pattern.Length;
+    private static long ErrorCount(CommunicationDiagnosticsSnapshot d)=>d.Timeouts+d.CrcErrors+d.MbapErrors+d.TidErrors+d.UnitErrors+d.ModbusExceptions+d.BadFrames+d.TransportErrors;
+    private static async Task WaitUntilAsync(Func<bool> condition){var end=DateTime.UtcNow.AddSeconds(2);while(!condition()&&DateTime.UtcNow<end)await Task.Delay(5);Assert.True(condition());}
     private static string FindRepositoryRoot(){var directory=new DirectoryInfo(AppContext.BaseDirectory);while(directory is not null&&!Directory.Exists(Path.Combine(directory.FullName,"apps")))directory=directory.Parent;return directory?.FullName??throw new DirectoryNotFoundException();}
 
     private sealed class Factory(AsyncTransport transport):IModbusTransportFactory
@@ -98,10 +122,13 @@ public sealed class StrictMonitoringTests
 
     private sealed class AsyncTransport:IModbusTransport
     {
-        private readonly TaskCompletionSource firstRealtime=new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource firstRealtime=new(TaskCreationOptions.RunContinuationsAsynchronously);private TaskCompletionSource? heldRealtime;private TaskCompletionSource? heldEntered;
         public bool IsOpen{get;private set;}public string Endpoint=>"memory://async";public int Fc16Count{get;private set;}public int CreateGeneration{get;set;}
-        public Exception? FirstRealtimeError{get;init;}public Exception? FailNextRead{get;set;}public bool InvalidRealtime{get;init;}
+        public Exception? FirstRealtimeError{get;init;}public Exception? FailNextRead{get;set;}public bool InvalidRealtime{get;set;}public int RealtimeCount{get;private set;}
         public void ReleaseFirstRealtime()=>firstRealtime.TrySetResult();
+        public void HoldNextRealtime(){heldRealtime=new(TaskCreationOptions.RunContinuationsAsynchronously);heldEntered=new(TaskCreationOptions.RunContinuationsAsynchronously);}
+        public Task WaitUntilHeldAsync()=>heldEntered!.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        public void ReleaseHeldRealtime()=>heldRealtime?.TrySetResult();
         public Task OpenAsync(CancellationToken cancellationToken){IsOpen=true;return Task.CompletedTask;}
         public Task CloseAsync(){IsOpen=false;firstRealtime.TrySetCanceled();return Task.CompletedTask;}
         public ValueTask DisposeAsync()=>ValueTask.CompletedTask;
@@ -109,7 +136,7 @@ public sealed class StrictMonitoringTests
         {
             await Task.Yield();var request=pdu.ToArray();if(request[0]==16){Fc16Count++;var write=new[]{(byte)16,request[1],request[2],request[3],request[4]};return new(write,request,write);}
             var address=(ushort)(request[1]<<8|request[2]);var count=(ushort)(request[3]<<8|request[4]);
-            if(address==0){await firstRealtime.Task.WaitAsync(cancellationToken);if(FirstRealtimeError is not null)throw FirstRealtimeError;}
+            if(address==0){RealtimeCount++;await firstRealtime.Task.WaitAsync(cancellationToken);var held=heldRealtime;if(held is not null){heldEntered?.TrySetResult();await held.Task.WaitAsync(cancellationToken);heldRealtime=null;}if(FirstRealtimeError is not null)throw FirstRealtimeError;}
             if(FailNextRead is not null){var error=FailNextRead;FailNextRead=null;throw error;}
             var values=Read(address,count);var response=new byte[2+values.Length*2];response[0]=3;response[1]=(byte)(values.Length*2);
             for(var i=0;i<values.Length;i++){response[2+i*2]=(byte)(values[i]>>8);response[3+i*2]=(byte)values[i];}

@@ -49,6 +49,8 @@ public static class PersistenceHardwareRunner
             if (existingJournal.WorkflowId != workflowId) { Console.Error.WriteLine("PERSISTENCE_JOURNAL_ID_MISMATCH"); return 14; }
             binding = PreflightEvidenceValidator.Validate(evidenceRoot, existingJournal.BoundPreflightWorkflowId, clientCommit, baseline, utcNow(),
                 toolVersion, toolSha256, requireFresh: false);
+            if(existingJournal.Phase is PersistencePhase.WaitingForFirstReboot or PersistencePhase.WaitingForSecondReboot)
+                PersistenceCompletionEvidenceValidator.ValidateWaitingSession(Path.GetDirectoryName(journalPath)!,existingJournal,existingJournal.Phase,clientCommit,toolVersion,toolSha256);
         }
 
         var workflowDirectory=Path.GetDirectoryName(journalPath)!;
@@ -66,7 +68,7 @@ public static class PersistenceHardwareRunner
         var environmentFile = $"persistence-session-{sessionId}-environment.json";
         var summaryFile = $"persistence-session-{sessionId}-summary.json";
         var connectionAttempts = 0; var connectionSucceeded = 0; var connectionFailed = 0; var disconnects = 0;long generationStart=0;long generationEnd=0;
-        string phase = "NOT_STARTED"; string? sessionError = null;var exitCode=22;DateTimeOffset? stabilityCompleted=null;
+        string phase = "NOT_STARTED"; string? sessionError = null;var exitCode=22;DateTimeOffset? stabilityCompleted=null;PersistenceJournal? sessionJournal=null;
         await using var monitoring = monitoringFactory();
         try
         {
@@ -85,13 +87,13 @@ public static class PersistenceHardwareRunner
             var journal = authorization.PreflightWorkflowId is not null
                 ? await persistence.StartAsync(journalPath, workflowId, clientCommit)
                 : await persistence.ResumeAfterManualRebootAsync(journalPath);
+            sessionJournal=journal;
             phase = journal.Phase.ToString();
             Console.WriteLine($"WORKFLOW_ID={workflowId}");
             Console.WriteLine($"JOURNAL={journalPath}");
             Console.WriteLine($"PHASE={journal.Phase}");
             if (journal.Phase is PersistencePhase.WaitingForFirstReboot or PersistencePhase.WaitingForSecondReboot)
             {
-                Console.WriteLine("MANUAL_REBOOT_REQUIRED; no automatic reboot or further write will occur.");
                 exitCode=20;
             }
             else if(journal.Phase==PersistencePhase.Complete)
@@ -137,6 +139,11 @@ public static class PersistenceHardwareRunner
                 environmentFile, PersistenceBaselineContract.ComputeFileSha256(environmentPath),
                 hasStability?"final-stability.json":null,hasStability?PersistenceBaselineContract.ComputeFileSha256(stabilityPath):null);
             await AtomicJsonFile.WriteAsync(Path.Combine(sessionDirectory, summaryFile), summary);
+        }
+        if(exitCode==20)
+        {
+            try{PersistenceCompletionEvidenceValidator.ValidateWaitingSession(sessionDirectory,sessionJournal??throw new InvalidDataException("Waiting journal is missing."),sessionJournal!.Phase,clientCommit,toolVersion,toolSha256);Console.WriteLine("MANUAL_REBOOT_REQUIRED; session evidence is complete and clean.");}
+            catch(Exception error){Console.Error.WriteLine($"DO_NOT_REBOOT: {error.Message}");return 24;}
         }
         if(exitCode==0)
         {
