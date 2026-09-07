@@ -491,25 +491,42 @@ public sealed class PersistenceTests
     [Fact] public async Task FinalStabilityCoversFullWindowWithReadOnlySamples()
     {
         var device=new FakePersistenceDevice(Active(3),Store(),0);var clock=new FakeClock();
-        var report=await new FinalPersistenceStabilityService(device,Baseline(),clock,new FinalStabilityPolicy(TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(1))).RunAsync();
-        Assert.True(report.Passed);Assert.Equal(5,report.DurationSeconds);Assert.Equal(6,report.Samples.Length);Assert.Equal(0,device.ApplyCalls);Assert.Equal(0,device.SaveCalls);
+        var report=await new FinalPersistenceStabilityService(device,Baseline(),Expectation(),clock,new FinalStabilityPolicy(TimeSpan.FromSeconds(600),TimeSpan.FromSeconds(1))).RunAsync();
+        Assert.True(report.Passed);Assert.Equal(600,report.DurationSeconds);Assert.Equal(601,report.Samples.Length);Assert.Equal(0,device.ApplyCalls);Assert.Equal(0,device.SaveCalls);
     }
 
     [Fact] public void FinalStabilityValidatorRejectsShortOrTamperedPass()
     {
-        var now=DateTimeOffset.UtcNow;var sample=new FinalStabilitySample(now,Baseline().Manifest.ActiveArraySha256,3,Store(),new MailboxSnapshot(0,0,0,0,new ushort[12]));
-        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(5),5,true,null,[sample,sample]),Baseline()));
+        var now=DateTimeOffset.UtcNow;var sample=new FinalStabilitySample(now,Active(3),Baseline().Manifest.ActiveArraySha256,3,Store(),new MailboxSnapshot(0,0,0,0,new ushort[12]));
+        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(5),5,true,Expectation(),[],[sample,sample]),Baseline()));
         var dirty=sample with{ConfigStore=Store() with{ConfigDirty=true,CurrentRevision=11}};
-        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(600),600,true,null,[sample,dirty]),Baseline()));
+        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(600),600,true,Expectation(),[],[sample,dirty]),Baseline()));
+        var badHash=sample with{ActiveSha256=new string('0',64)};
+        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(600),600,true,Expectation(),[],[sample,badHash]),Baseline()));
     }
 
-    [Theory][InlineData("active")][InlineData("dirty")][InlineData("mailbox")]
+    [Theory][InlineData("active")][InlineData("brightness")][InlineData("dirty")][InlineData("mailbox")][InlineData("mailbox-token")][InlineData("state")][InlineData("mirrors")][InlineData("slot")][InlineData("sequence")][InlineData("revisions")]
     public async Task FinalStabilityStopsOnFirstInvariantFailure(string failure)
     {
-        var active=Active(3);var store=Store();if(failure=="active")active[0]++;if(failure=="dirty")store=store with{ConfigDirty=true,CurrentRevision=11};
-        var device=new FakePersistenceDevice(active,store,0){MailboxState=failure=="mailbox"?(ushort)1:(ushort)0};var clock=new FakeClock();
-        var report=await new FinalPersistenceStabilityService(device,Baseline(),clock,new FinalStabilityPolicy(TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(1))).RunAsync();
-        Assert.False(report.Passed);Assert.Single(report.Samples);Assert.Equal(0,device.ApplyCalls);Assert.Equal(0,device.SaveCalls);
+        var active=Active(3);var store=Store();if(failure=="active")active[0]++;if(failure=="brightness")active[22]=4;if(failure=="dirty")store=store with{ConfigDirty=true};if(failure=="state")store=Store(ConfigStoreState.Prepare,ConfigStoreState.Prepare);if(failure=="mirrors")store=Store(ConfigStoreState.Idle,ConfigStoreState.Prepare);if(failure=="slot")store=store with{ActiveSlot=2};if(failure=="sequence")store=store with{ActiveSequence=8};if(failure=="revisions")store=store with{CurrentRevision=11,SavedRevision=11};
+        var device=new FakePersistenceDevice(active,store,failure=="mailbox-token"?(ushort)1:(ushort)0){MailboxState=failure=="mailbox"?(ushort)1:(ushort)0};var clock=new FakeClock();
+        var report=await new FinalPersistenceStabilityService(device,Baseline(),Expectation(),clock,new FinalStabilityPolicy(TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(1))).RunAsync();
+        Assert.False(report.Passed);Assert.Single(report.Samples);Assert.NotEmpty(report.Failures);Assert.All(report.Failures,x=>Assert.NotEqual(default,x.CapturedAtUtc));Assert.Equal(0,device.ApplyCalls);Assert.Equal(0,device.SaveCalls);
+    }
+
+    [Fact] public async Task FinalStabilityReadErrorAfterGoodSampleCannotRecoverToPass()
+    {
+        var device=new FakePersistenceDevice(Active(3),Store(),0){ActiveReadErrorAfter=2};var clock=new FakeClock();
+        var report=await new FinalPersistenceStabilityService(device,Baseline(),Expectation(),clock,new FinalStabilityPolicy(TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(1))).RunAsync();
+        Assert.False(report.Passed);Assert.Single(report.Samples);Assert.Contains(report.Failures,x=>x.Field=="read_exception");Assert.Equal(2,device.ActiveReadCalls);
+    }
+
+    [Fact] public void TraceErrorBeforeSuccessfulRecoveryRemainsUnclean()
+    {
+        var now=DateTimeOffset.UtcNow;
+        var trace=new[]{new ModbusOperationTrace(now,now,3,0,1,null,false,"AA","","Timeout",null,"timed out"),new ModbusOperationTrace(now,now,3,0,1,null,true,"AA","BB",null,null,null)};
+        var stats=PersistenceTraceStatistics.FromTrace(trace);var errors=PersistenceTraceErrors.FromTrace(trace);
+        Assert.Equal(2,stats.Fc03Attempted);Assert.Equal(1,stats.Fc03Succeeded);Assert.Equal(1,stats.Fc03Failed);Assert.Equal(1,errors.Timeouts);Assert.False(errors.IsClean);
     }
 
     private static ConfigurationPersistenceService Service(FakePersistenceDevice device, FakeClock? clock = null) =>
@@ -524,6 +541,7 @@ public sealed class PersistenceTests
     private static ConfigStoreSnapshot Store(ConfigStoreState state1 = ConfigStoreState.Idle, ConfigStoreState state2 = ConfigStoreState.Idle,
         bool dirty = false, uint current = 10, uint saved = 10, ushort slot = 1, uint sequence = 7) =>
         new((ushort)state1, (ushort)state2, state1, state2, dirty, current, saved, 2, slot, sequence);
+    private static FinalPersistenceExpectation Expectation()=>new(1,7,10,10,0,0,0,0);
 
     private static PersistenceJournal Journal()
     {
@@ -586,6 +604,8 @@ public sealed class PersistenceTests
         public ushort MailboxToken { get; private set; } = mailboxToken;
         public int SaveCalls { get; private set; }
         public int ApplyCalls { get; private set; }
+        public int ActiveReadCalls { get; private set; }
+        public int? ActiveReadErrorAfter { get; init; }
         public Exception? ApplyError { get; init; }
         public Exception? SaveError { get; init; }
         public Exception? PollError { get; init; }
@@ -600,7 +620,7 @@ public sealed class PersistenceTests
         { StateMirror1Raw = 0, StateMirror2Raw = 0, StateMirror1 = ConfigStoreState.Idle, StateMirror2 = ConfigStoreState.Idle }, 0);
         public Task<DeviceIdentity> ReadIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DeviceIdentity(0x050A, 2, 0x0104, 1));
         public Task<MailboxSnapshot> ReadMailboxAsync(CancellationToken cancellationToken = default) => Task.FromResult(new MailboxSnapshot(MailboxToken, 0, MailboxState, 0, new ushort[12]));
-        public Task<ushort[]> ReadActiveConfigurationAsync(CancellationToken cancellationToken = default) => Task.FromResult(Active.ToArray());
+        public Task<ushort[]> ReadActiveConfigurationAsync(CancellationToken cancellationToken = default) {ActiveReadCalls++;if(ActiveReadErrorAfter==ActiveReadCalls)throw new IOException("stability read failure");return Task.FromResult(Active.ToArray());}
         public Task<ConfigStoreSnapshot> ReadConfigStoreAsync(CancellationToken cancellationToken = default)
         {
             if (saveSent && PollError is not null) throw PollError;

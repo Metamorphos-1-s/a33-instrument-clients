@@ -223,7 +223,17 @@ baseline SHA-256, and brightness 3. Either mismatch becomes
 After the second reboot produces a complete 64/64 restoration, the same
 read-only connection runs the fixed final stability service for at least 600
 seconds at one-second intervals. Every sample requires the authoritative
-Active hash, brightness 3, idle Mailbox, IDLE/clean ConfigStore, equal
-revisions and a legal slot. `final-stability.json` is atomic and cannot be
-overwritten; an existing PASS is accepted only after its duration and every
-sample are revalidated. A failure is preserved and is not rerun automatically.
+Active 64-register array and hash, brightness 3, idle Mailbox, and IDLE/clean,
+known and consistent ConfigStore. Slot, active sequence, current revision,
+saved revision and required Mailbox fields are locked to the Cycle B second
+reboot evidence; later values that merely remain internally consistent still
+fail. Any trace error, failed read, automatic reconnect, connection failure,
+write function or configuration command vetoes PASS.
+
+`final-stability.json` and its session trace, environment and summary are
+atomic and cannot be overwritten. The Complete fast path opens no transport,
+but returns PASS only after validating the journal and current workflow,
+baseline, client commit, tool version/SHA, every evidence hash, cross-file
+phase/time/identity bindings, trace semantics, and all final read-only zero
+error/zero-write counters. Missing, damaged, tampered or conflicting evidence
+fails offline. The real SAVE and two-reboot workflow has not been run.

@@ -6,13 +6,15 @@ public static class PersistenceHardwareRunner
 {
     public static Task<int> RunAsync(
         string[] args, Func<InstrumentMonitoringService>? monitoringFactory = null,
-        string? evidenceRootOverride = null, Func<DateTimeOffset>? utcNow = null) =>
+        string? evidenceRootOverride = null, Func<DateTimeOffset>? utcNow = null,
+        IPersistenceClock? workflowClock = null, FinalStabilityPolicy? stabilityPolicy = null) =>
         PersistenceHardwareAuthorizationGate.ExecuteAfterAuthorizationAsync(args,
-            authorization => RunAuthorizedAsync(authorization, monitoringFactory ?? (() => new InstrumentMonitoringService()), evidenceRootOverride, utcNow ?? (() => DateTimeOffset.UtcNow)));
+            authorization => RunAuthorizedAsync(authorization, monitoringFactory ?? (() => new InstrumentMonitoringService()), evidenceRootOverride,
+                utcNow ?? (() => DateTimeOffset.UtcNow), workflowClock ?? new SystemPersistenceClock(), stabilityPolicy ?? FinalStabilityPolicy.Fixed600Seconds));
 
     private static async Task<int> RunAuthorizedAsync(
         PersistenceHardwareAuthorization authorization, Func<InstrumentMonitoringService> monitoringFactory,
-        string? evidenceRootOverride, Func<DateTimeOffset> utcNow)
+        string? evidenceRootOverride, Func<DateTimeOffset> utcNow, IPersistenceClock workflowClock, FinalStabilityPolicy stabilityPolicy)
     {
         var repositoryRoot = RepositoryRoot.Find();
         var evidenceRoot = evidenceRootOverride ?? Path.Combine(repositoryRoot, "Results", "pc_stage2b_hw");
@@ -44,26 +46,26 @@ public static class PersistenceHardwareRunner
             journalPath = matches[0];
             existingJournal = await PersistenceJournalStore.ReadAsync(journalPath);
             if (existingJournal.WorkflowId != workflowId) { Console.Error.WriteLine("PERSISTENCE_JOURNAL_ID_MISMATCH"); return 14; }
-            var existingStability=Path.Combine(Path.GetDirectoryName(journalPath)!,"final-stability.json");
-            if(existingJournal.Phase==PersistencePhase.Complete&&File.Exists(existingStability))
-            {
-                var report=AtomicJsonFile.Read<FinalStabilityReport>(existingStability);
-                if(report.Passed)FinalStabilityReportValidator.ValidatePass(report,baseline);
-                return report.Passed?0:23;
-            }
             binding = PreflightEvidenceValidator.Validate(evidenceRoot, existingJournal.BoundPreflightWorkflowId, clientCommit, baseline, utcNow(),
                 toolVersion, toolSha256, requireFresh: false);
+        }
+
+        var workflowDirectory=Path.GetDirectoryName(journalPath)!;
+        if(existingJournal?.Phase==PersistencePhase.Complete)
+        {
+            PersistenceCompletionEvidenceValidator.Validate(workflowDirectory,workflowId,existingJournal,baseline,clientCommit,toolVersion,toolSha256);
+            return 0;
         }
 
         var safety = new PersistenceSafetyContext(baseline, binding, clientCommit);
         var sessionId = Guid.NewGuid().ToString("D");
         var sessionStarted = DateTimeOffset.UtcNow;
-        var sessionDirectory = Path.GetDirectoryName(journalPath)!;
+        var sessionDirectory = workflowDirectory;
         var traceFile = $"persistence-session-{sessionId}-request-trace.json";
         var environmentFile = $"persistence-session-{sessionId}-environment.json";
         var summaryFile = $"persistence-session-{sessionId}-summary.json";
         var connectionAttempts = 0; var connectionSucceeded = 0; var connectionFailed = 0; var disconnects = 0;
-        string phase = "NOT_STARTED"; string? sessionError = null;
+        string phase = "NOT_STARTED"; string? sessionError = null;var exitCode=22;DateTimeOffset? stabilityCompleted=null;
         await using var monitoring = monitoringFactory();
         try
         {
@@ -76,7 +78,7 @@ public static class PersistenceHardwareRunner
             catch { connectionFailed++; throw; }
             await monitoring.StartMonitoringAsync();
             var persistenceDevice=new MonitoringConfigurationPersistenceDevice(monitoring);
-            var persistence = new ConfigurationPersistenceService(persistenceDevice, safety);
+            var persistence = new ConfigurationPersistenceService(persistenceDevice, safety, workflowClock);
             var journal = authorization.PreflightWorkflowId is not null
                 ? await persistence.StartAsync(journalPath, workflowId, clientCommit)
                 : await persistence.ResumeAfterManualRebootAsync(journalPath);
@@ -87,30 +89,32 @@ public static class PersistenceHardwareRunner
             if (journal.Phase is PersistencePhase.WaitingForFirstReboot or PersistencePhase.WaitingForSecondReboot)
             {
                 Console.WriteLine("MANUAL_REBOOT_REQUIRED; no automatic reboot or further write will occur.");
-                return 20;
+                exitCode=20;
             }
-            if(journal.Phase==PersistencePhase.Complete)
+            else if(journal.Phase==PersistencePhase.Complete)
             {
-                var stability=await new FinalPersistenceStabilityService(persistenceDevice,baseline).RunAsync();
+                var stability=await new FinalPersistenceStabilityService(persistenceDevice,baseline,FinalPersistenceExpectation.FromCycleB(journal),workflowClock,stabilityPolicy).RunAsync();
+                stabilityCompleted=stability.CompletedAtUtc;
                 if(stability.Passed)FinalStabilityReportValidator.ValidatePass(stability,baseline);
                 await AtomicJsonFile.WriteAsync(Path.Combine(sessionDirectory,"final-stability.json"),stability);
                 phase=stability.Passed?"COMPLETE_STABILITY_PASS":"COMPLETE_STABILITY_FAIL";
-                return stability.Passed?0:23;
+                exitCode=stability.Passed?0:23;
             }
-            return journal.Phase == PersistencePhase.Complete ? 0 : journal.Phase == PersistencePhase.ResultUncertain ? 21 : 22;
+            else exitCode=journal.Phase==PersistencePhase.ResultUncertain?21:22;
         }
         catch(Exception error)
         {
             sessionError = error.Message;
             phase = "FAILED_OR_UNCERTAIN";
             Console.Error.WriteLine(error.Message);
-            return 22;
+            exitCode=22;
         }
         finally
         {
             await monitoring.StopMonitoringAsync();
             if(monitoring.State != MonitoringConnectionState.Disconnected){await monitoring.DisconnectAsync();disconnects++;}
             var completed = DateTimeOffset.UtcNow;
+            if(stabilityCompleted>completed)completed=stabilityCompleted.Value;
             var trace = monitoring.OperationTrace;
             var tracePath = Path.Combine(sessionDirectory, traceFile);
             var environmentPath = Path.Combine(sessionDirectory, environmentFile);
@@ -128,5 +132,11 @@ public static class PersistenceHardwareRunner
                 hasStability?"final-stability.json":null,hasStability?PersistenceBaselineContract.ComputeFileSha256(stabilityPath):null);
             await AtomicJsonFile.WriteAsync(Path.Combine(sessionDirectory, summaryFile), summary);
         }
+        if(exitCode==0)
+        {
+            var completedJournal=await PersistenceJournalStore.ReadAsync(journalPath);
+            PersistenceCompletionEvidenceValidator.Validate(sessionDirectory,workflowId,completedJournal,baseline,clientCommit,toolVersion,toolSha256);
+        }
+        return exitCode;
     }
 }

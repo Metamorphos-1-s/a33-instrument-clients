@@ -192,6 +192,80 @@ public sealed class PersistenceEvidenceGateTests
         Assert.Equal(0,calls);
     }
 
+    [Fact] public async Task CompleteEvidenceAllowsIdempotentReturnWithoutConnectionFactory()
+    {
+        using var files=new TempDirectory();var complete=await CreateCompleteEvidenceAsync(files.Root);var calls=0;
+        var exit=await PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(complete.WorkflowId),()=>{calls++;return new InstrumentMonitoringService();},files.Root,()=>complete.Now.AddHours(1));
+        Assert.Equal(0,exit);Assert.Equal(0,calls);
+    }
+
+    [Fact] public async Task FakeRunnerCompletesBothRebootsFinalStabilityAndOfflineReplay()
+    {
+        using var files=new TempDirectory();var assembly=typeof(PersistenceHardwareRunner).Assembly;
+        var commit=assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(x=>x.Key=="GitCommit").Value!;
+        var version=assembly.GetName().Version!.ToString();var toolHash=PersistenceBaselineContract.ComputeFileSha256(assembly.Location);
+        var preflight=await CreateEvidenceAsync(files.Root,s=>s with{ToolAssemblyVersion=version,ToolSha256=toolHash},clientCommit:commit);
+        var clock=new RunnerClock(DateTimeOffset.UtcNow);var hardware=new PersistenceTransport(Baseline().Manifest.ActiveRegisters);
+        var factoryCalls=0;InstrumentMonitoringService Factory(){factoryCalls++;return new InstrumentMonitoringService(new SingleTransportFactory(hardware));}
+        var policy=new FinalStabilityPolicy(TimeSpan.FromSeconds(600),TimeSpan.FromSeconds(1));
+
+        Assert.Equal(20,await PersistenceHardwareRunner.RunAsync(AuthorizedArgs(preflight.WorkflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(1),clock,policy));
+        var journalPath=Directory.GetFiles(files.Root,"persistence-journal.json",SearchOption.AllDirectories).Single();
+        var workflowId=(await PersistenceJournalStore.ReadAsync(journalPath)).WorkflowId;
+        Assert.Equal(1,hardware.SaveCount);hardware.Reboot();clock.SynchronizeForward();
+        Assert.Equal(20,await PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(workflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(1),clock,policy));
+        Assert.Equal(2,hardware.SaveCount);hardware.Reboot();clock.SynchronizeForward();
+        Assert.Equal(0,await PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(workflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(1),clock,policy));
+        Assert.Equal(3,factoryCalls);Assert.Equal(2,hardware.SaveCount);Assert.Equal((ushort)3,hardware.Active[ConfigurationPersistenceService.BrightnessOffset]);
+        Assert.Equal(0,await PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(workflowId),Factory,files.Root,()=>preflight.Now.AddSeconds(1),clock,policy));
+        Assert.Equal(3,factoryCalls);Assert.Equal(2,hardware.SaveCount);
+    }
+
+    [Theory]
+    [InlineData("missing-summary")][InlineData("missing-final")][InlineData("final-damaged")][InlineData("final-tamper")][InlineData("final-semantic")]
+    [InlineData("trace-hash")][InlineData("trace-write")][InlineData("phase")][InlineData("environment")]
+    [InlineData("reconnect")][InlineData("fc03")][InlineData("fc06")][InlineData("staging")][InlineData("mailbox")]
+    [InlineData("begin")][InlineData("validate")][InlineData("apply")][InlineData("cancel")][InlineData("save")][InlineData("error")]
+    public async Task CompleteEvidenceMissingTamperedOrConflictingIsRejectedOffline(string failure)
+    {
+        using var files=new TempDirectory();var complete=await CreateCompleteEvidenceAsync(files.Root);var summaryPath=complete.SessionSummaryPath;
+        if(failure=="missing-summary")File.Delete(summaryPath);
+        else if(failure=="missing-final")File.Delete(Path.Combine(complete.Directory,"final-stability.json"));
+        else if(failure=="final-damaged"){File.Delete(Path.Combine(complete.Directory,"final-stability.json"));File.WriteAllText(Path.Combine(complete.Directory,"final-stability.json"),"{");}
+        else if(failure=="final-tamper")File.AppendAllText(Path.Combine(complete.Directory,"final-stability.json")," ");
+        else if(failure=="final-semantic")
+        {
+            var finalPath=Path.Combine(complete.Directory,"final-stability.json");var report=AtomicJsonFile.Read<FinalStabilityReport>(finalPath);
+            var changed=report.Samples[1].ActiveRegisters.ToArray();changed[0]++;
+            report=report with{Samples=[report.Samples[0],report.Samples[1] with{ActiveRegisters=changed}]};File.Delete(finalPath);await AtomicJsonFile.WriteAsync(finalPath,report);
+            var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath) with{FinalStabilitySha256=PersistenceBaselineContract.ComputeFileSha256(finalPath)};
+            File.Delete(summaryPath);await AtomicJsonFile.WriteAsync(summaryPath,summary);
+        }
+        else
+        {
+            var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath);
+            if(failure=="trace-hash")summary=summary with{TraceSha256=new string('A',64)};
+            if(failure=="trace-write")summary=summary with{Requests=summary.Requests with{Fc16Attempted=1}};
+            if(failure=="phase")summary=summary with{Phase="WaitingForSecondReboot"};
+            if(failure=="environment")summary=summary with{EnvironmentSha256=new string('B',64)};
+            if(failure=="reconnect")summary=summary with{AutomaticReconnects=1};
+            if(failure=="fc03")summary=summary with{Requests=summary.Requests with{Fc03Succeeded=0,Fc03Failed=1}};
+            if(failure=="fc06")summary=summary with{Requests=summary.Requests with{Fc06Attempted=1}};
+            if(failure=="staging")summary=summary with{Requests=summary.Requests with{StagingWrites=1}};
+            if(failure=="mailbox")summary=summary with{Requests=summary.Requests with{MailboxWrites=1}};
+            if(failure=="begin")summary=summary with{Requests=summary.Requests with{Begin=1}};
+            if(failure=="validate")summary=summary with{Requests=summary.Requests with{Validate=1}};
+            if(failure=="apply")summary=summary with{Requests=summary.Requests with{Apply=1}};
+            if(failure=="cancel")summary=summary with{Requests=summary.Requests with{Cancel=1}};
+            if(failure=="save")summary=summary with{Requests=summary.Requests with{Save=1}};
+            if(failure=="error")summary=summary with{Errors=summary.Errors with{TransportErrors=1}};
+            File.Delete(summaryPath);await AtomicJsonFile.WriteAsync(summaryPath,summary);
+        }
+        var calls=0;
+        await Assert.ThrowsAnyAsync<Exception>(()=>PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(complete.WorkflowId),()=>{calls++;return new InstrumentMonitoringService();},files.Root,()=>complete.Now.AddHours(1)));
+        Assert.Equal(0,calls);
+    }
+
     private static async Task<CreatedEvidence> CreateEvidenceAsync(
         string root, Func<PreflightSummary, PreflightSummary>? transform = null,
         Func<PreflightEnvironmentEvidence, PreflightEnvironmentEvidence>? environmentTransform = null,
@@ -209,6 +283,32 @@ public sealed class PersistenceEvidenceGateTests
         var environment = environmentTransform?.Invoke(EnvironmentEvidence(summary)) ?? EnvironmentEvidence(summary);
         var stored = await PreflightEvidenceStore.WriteAsync(directory, summary, trace, report, environment);
         return new(id, directory, now.AddSeconds(1), stored);
+    }
+
+    private static async Task<CompleteEvidence> CreateCompleteEvidenceAsync(string root)
+    {
+        var assembly=typeof(PersistenceHardwareRunner).Assembly;var commit=assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(x=>x.Key=="GitCommit").Value!;
+        var version=assembly.GetName().Version!.ToString();var toolHash=PersistenceBaselineContract.ComputeFileSha256(assembly.Location);
+        var preflight=await CreateEvidenceAsync(root,s=>s with{ToolAssemblyVersion=version,ToolSha256=toolHash},clientCommit:commit);
+        var workflowId=Guid.NewGuid().ToString();var directory=PersistenceEvidenceDirectory.CreateUnique(root,workflowId,preflight.Now.AddMinutes(1));var journalPath=Path.Combine(directory,"persistence-journal.json");
+        var baseline=Baseline();var active3=baseline.Manifest.ActiveRegisters.ToArray();var active4=active3.ToArray();active4[ConfigurationPersistenceService.BrightnessOffset]=4;
+        var storeA0=Store() with{ConfigDirty=true,CurrentRevision=11,SavedRevision=10};var storeA1=Store() with{ActiveSlot=2,ActiveSequence=8,CurrentRevision=11,SavedRevision=11};
+        var storeB0=storeA1 with{ConfigDirty=true,CurrentRevision=12,SavedRevision=11};var storeB1=storeA1 with{ActiveSlot=1,ActiveSequence=9,CurrentRevision=12,SavedRevision=12};
+        var mailbox=new MailboxSnapshot(0,0,0,0,new ushort[12]);var identity=new DeviceIdentity(0x050A,2,0x0104,1);var at=preflight.Now.AddMinutes(2);
+        var rebootA=new PersistenceRebootEvidence(at,identity,mailbox,storeA1,active4,PersistenceBaselineContract.ComputeActiveSha256(active4));
+        var rebootB=new PersistenceRebootEvidence(at.AddMinutes(1),identity,mailbox,storeB1,active3,baseline.Manifest.ActiveArraySha256);
+        var cycleA=new PersistenceCycleEvidence{Cycle=PersistenceCycle.A,ExpectedActiveConfiguration=active4,ActiveBeforeApply=active3,ActiveAfterApply=active4,SaveBefore=storeA0,SaveConfirmed=storeA1,MailboxTokens=[1,2,3,4],SaveToken=4,SaveReservedAtUtc=at.AddSeconds(-2),SaveRequestMayHaveBeenSent=true,RebootEvidence=rebootA};
+        var cycleB=new PersistenceCycleEvidence{Cycle=PersistenceCycle.B,ExpectedActiveConfiguration=active3,ActiveBeforeApply=active4,ActiveAfterApply=active3,SaveBefore=storeB0,SaveConfirmed=storeB1,MailboxTokens=[1,2,3,5],SaveToken=5,SaveReservedAtUtc=at.AddSeconds(58),SaveRequestMayHaveBeenSent=true,RebootEvidence=rebootB};
+        var journal=new PersistenceJournal{WorkflowId=workflowId,ClientCommit=commit,Stm32Commit=ConfigurationPersistenceService.FixedStm32Commit,BaselineId=baseline.Manifest.BaselineId,BaselineSha256=baseline.Manifest.ActiveArraySha256,BaselineManifestSha256=baseline.ManifestSha256,BoundPreflightWorkflowId=preflight.WorkflowId,PreflightSummarySha256=PersistenceBaselineContract.ComputeFileSha256(Path.Combine(preflight.Directory,"preflight-summary.json")),CreatedAt=at.AddMinutes(-1),UpdatedAt=rebootB.CapturedAtUtc,Phase=PersistencePhase.Complete,Cycle=PersistenceCycle.Complete,AuthorizationStage=PersistenceAuthorizationStage.Complete,OriginalActiveConfiguration=active3,ExpectedActiveConfiguration=active3,ReservedSaveCount=2,SaveTokens=[4,5],LastMailboxToken=0,MailboxTokenBeforeFirstReboot=4,MailboxTokenAfterFirstReboot=0,MailboxTokenBeforeSecondReboot=5,MailboxTokenAfterSecondReboot=0,PollSnapshots=[],WaitingForFirstReboot=false,WaitingForSecondReboot=false,FinalConfigurationMatches64Of64=true,Events=[new(at.AddMinutes(-1),PersistenceEventKind.Information,"start"),new(rebootB.CapturedAtUtc,PersistenceEventKind.Verified,"complete")],CycleAEvidence=cycleA,CycleBEvidence=cycleB};
+        await PersistenceJournalStore.WriteAtomicAsync(journalPath,journal);
+        var expectation=FinalPersistenceExpectation.FromCycleB(journal);var stabilityStart=rebootB.CapturedAtUtc.AddSeconds(1);
+        var samples=Enumerable.Range(0,601).Select(i=>new FinalStabilitySample(stabilityStart.AddSeconds(i),active3.ToArray(),baseline.Manifest.ActiveArraySha256,3,storeB1,mailbox)).ToArray();
+        var stability=new FinalStabilityReport(stabilityStart,stabilityStart.AddSeconds(600),600,true,expectation,[],samples);var stabilityPath=Path.Combine(directory,"final-stability.json");await AtomicJsonFile.WriteAsync(stabilityPath,stability);
+        var sessionId=Guid.NewGuid().ToString();var traceFile=$"persistence-session-{sessionId}-request-trace.json";var environmentFile=$"persistence-session-{sessionId}-environment.json";var summaryFile=$"persistence-session-{sessionId}-summary.json";
+        var trace=new[]{new ModbusOperationTrace(stabilityStart,stabilityStart,3,0,1,null,true,"AA","BB",null,null,null)};var tracePath=Path.Combine(directory,traceFile);await AtomicJsonFile.WriteAsync(tracePath,trace);
+        var environment=new PreflightEnvironmentEvidence(1,workflowId,stabilityStart.AddSeconds(-1),stability.CompletedAtUtc.AddSeconds(1),commit,version,toolHash,"test-os",".NET","x64","test");var environmentPath=Path.Combine(directory,environmentFile);await AtomicJsonFile.WriteAsync(environmentPath,environment);
+        var stats=PersistenceTraceStatistics.FromTrace(trace);var errors=PersistenceTraceErrors.FromTrace(trace);var sessionSummary=new PersistenceSessionSummary(1,sessionId,workflowId,commit,version,toolHash,environment.StartedAtUtc,environment.CompletedAtUtc,(environment.CompletedAtUtc-environment.StartedAtUtc).TotalMilliseconds,new(1,1,0,1,0),stats,errors,0,"COMPLETE_STABILITY_PASS",null,traceFile,PersistenceBaselineContract.ComputeFileSha256(tracePath),environmentFile,PersistenceBaselineContract.ComputeFileSha256(environmentPath),"final-stability.json",PersistenceBaselineContract.ComputeFileSha256(stabilityPath));var sessionSummaryPath=Path.Combine(directory,summaryFile);await AtomicJsonFile.WriteAsync(sessionSummaryPath,sessionSummary);
+        return new(workflowId,directory,preflight.Now,sessionSummaryPath);
     }
 
     private static StrictPreflightReport Report()
@@ -239,6 +339,7 @@ public sealed class PersistenceEvidenceGateTests
 
     private static string[] AuthorizedArgs(string id) => ["persistence-brightness-cycle", "--authorize-stage2b-persistence", "--confirmation",
         "A33_STAGE2B_BRIGHTNESS_3_TO_4_TO_3_TWO_SAVES", "--acknowledge-manual-reboots", "--acknowledge-result-uncertain-lockout", "--preflight-workflow-id", id];
+    private static string[] AuthorizedRecoveryArgs(string id)=>["persistence-brightness-cycle","--authorize-stage2b-persistence","--confirmation","A33_STAGE2B_BRIGHTNESS_3_TO_4_TO_3_TWO_SAVES","--acknowledge-manual-reboots","--acknowledge-result-uncertain-lockout","--workflow-id",id];
     private static PreflightEnvironmentEvidence EnvironmentEvidence(PreflightSummary summary) => new(
         1, summary.WorkflowId, summary.StartedAtUtc, summary.CompletedAtUtc, summary.ClientCommit,
         summary.ToolAssemblyVersion, summary.ToolSha256, "test-os", ".NET", "x64", "test-machine");
@@ -261,6 +362,69 @@ public sealed class PersistenceEvidenceGateTests
         return directory?.FullName ?? throw new DirectoryNotFoundException();
     }
     private sealed record CreatedEvidence(string WorkflowId, string Directory, DateTimeOffset Now, PreflightSummary Summary);
+    private sealed record CompleteEvidence(string WorkflowId,string Directory,DateTimeOffset Now,string SessionSummaryPath);
+    private sealed class RunnerClock(DateTimeOffset now):IPersistenceClock
+    {
+        public DateTimeOffset UtcNow{get;private set;}=now;
+        public void SynchronizeForward(){var current=DateTimeOffset.UtcNow;if(current>UtcNow)UtcNow=current;}
+        public Task DelayAsync(TimeSpan delay,CancellationToken cancellationToken){cancellationToken.ThrowIfCancellationRequested();UtcNow+=delay;return Task.CompletedTask;}
+    }
+    private sealed class SingleTransportFactory(IModbusTransport transport):IModbusTransportFactory
+    {
+        public IModbusTransport Create(MonitoringOptions options)=>transport;
+    }
+    private sealed class PersistenceTransport(IEnumerable<ushort> baseline):IModbusTransport
+    {
+        private ushort[] staging=baseline.ToArray();private ushort responseToken;private ushort lastCommand;
+        private bool dirty;private uint currentRevision=10;private uint savedRevision=10;private ushort activeSlot=1;private uint activeSequence=7;
+        public ushort[] Active{get;private set;}=baseline.ToArray();public int SaveCount{get;private set;}public bool IsOpen{get;private set;}public string Endpoint=>"memory://persistence";
+        public Task OpenAsync(CancellationToken cancellationToken){cancellationToken.ThrowIfCancellationRequested();IsOpen=true;return Task.CompletedTask;}
+        public Task CloseAsync(){IsOpen=false;return Task.CompletedTask;}
+        public ValueTask DisposeAsync(){IsOpen=false;return ValueTask.CompletedTask;}
+        public void Reboot(){responseToken=0;lastCommand=0;staging=Active.ToArray();}
+        public Task<ModbusExchangeResult> ExchangeAsync(byte unitId,ReadOnlyMemory<byte> pdu,CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();var request=pdu.ToArray();
+            if(request[0]==3)
+            {
+                var address=(ushort)(request[1]<<8|request[2]);var count=(ushort)(request[3]<<8|request[4]);
+                var response=ReadResponse(Read(address,count));return Task.FromResult(new ModbusExchangeResult(response,request,response));
+            }
+            if(request[0]==16)
+            {
+                var address=(ushort)(request[1]<<8|request[2]);var quantity=(ushort)(request[3]<<8|request[4]);
+                var values=new ushort[quantity];for(var i=0;i<quantity;i++)values[i]=(ushort)(request[6+i*2]<<8|request[7+i*2]);
+                if(address>=0x0140&&address+quantity<=0x0180)Array.Copy(values,0,staging,address-0x0140,quantity);
+                else if(address==0x0040){responseToken=values[0];lastCommand=values[1];Execute(lastCommand);}
+                else throw new InvalidOperationException("Unexpected fake write.");
+                var response=new[]{(byte)16,request[1],request[2],request[3],request[4]};return Task.FromResult(new ModbusExchangeResult(response,request,response));
+            }
+            throw new InvalidOperationException("Unexpected fake function.");
+        }
+        private void Execute(ushort command)
+        {
+            if(command==11){Active=staging.ToArray();dirty=true;currentRevision++;}
+            else if(command==12)staging=Active.ToArray();
+            else if(command==13){SaveCount++;dirty=false;savedRevision=currentRevision;activeSlot=ConfigStoreContract.NextSlot(activeSlot);activeSequence=ConfigStoreContract.NextSequence(activeSequence);}
+            else if(command is not (9 or 10))throw new InvalidOperationException("Unexpected fake command.");
+        }
+        private ushort[] Read(ushort address,ushort count)
+        {
+            ushort[] source=address switch
+            {
+                0=>Realtime(),14=>[0x0104,0x050A],0x0030=>Diagnostics(),0x004C=>Mailbox(),
+                >=0x0100 and <=0x013F=>Active.Skip(address-0x0100).Take(count).ToArray(),
+                >=0x0140 and <=0x017F=>staging.Skip(address-0x0140).Take(count).ToArray(),
+                0x01C0=>Storage(),_=>new ushort[count]
+            };
+            return source.Take(count).Concat(Enumerable.Repeat((ushort)0,Math.Max(0,count-source.Length))).ToArray();
+        }
+        private ushort[] Realtime(){var values=new ushort[34];values[14]=0x0104;values[15]=0x050A;values[32]=0;values[33]=1;return values;}
+        private ushort[] Diagnostics()=>[0,0,dirty?(ushort)1:(ushort)0,(ushort)(currentRevision>>16),(ushort)currentRevision,(ushort)(savedRevision>>16),(ushort)savedRevision];
+        private ushort[] Storage()=>[2,activeSlot,(ushort)(activeSequence>>16),(ushort)activeSequence,0];
+        private ushort[] Mailbox()=>[responseToken,lastCommand==13?(ushort)1:(ushort)0,0,lastCommand,0,0,0,0,0,0,0,0];
+        private static byte[] ReadResponse(ushort[] values){var response=new byte[2+values.Length*2];response[0]=3;response[1]=(byte)(values.Length*2);for(var i=0;i<values.Length;i++){response[2+i*2]=(byte)(values[i]>>8);response[3+i*2]=(byte)values[i];}return response;}
+    }
     private sealed class TempDirectory : IDisposable
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "a33-evidence-tests-" + Guid.NewGuid().ToString("N"));

@@ -36,4 +36,10 @@ is a product release declaration.
 Before the fixed Stage 2B hardware workflow begins, the software scope is
 frozen with no general WPF Flash action, evidence-bound current-tool identity,
 zero automatic reconnect for persistence sessions, per-session Modbus request
-traces, and a fixed final 600-second read-only stability gate.
+traces, and a fixed final 600-second read-only stability gate. That gate locks
+slot, sequence and revisions to the Cycle B second-reboot evidence, rejects any
+communication error, reconnect or write, and records every complete Active
+sample. A Complete fast return remains offline and is allowed only after the
+full journal, baseline, tool identity, hashes, session trace, environment and
+stability evidence chain is validated. The real SAVE and two-reboot workflow
+has not been run.
