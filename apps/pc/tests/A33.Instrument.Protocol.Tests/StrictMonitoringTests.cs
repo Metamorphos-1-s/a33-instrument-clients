@@ -82,6 +82,15 @@ public sealed class StrictMonitoringTests
     }
 
     [Fact]
+    public async Task StrictStopDrainsInFlightPollBeforeCancellation()
+    {
+        var transport=new AsyncTransport();transport.ReleaseFirstRealtime();await using var monitoring=Service(transport);
+        await monitoring.ConnectAsync(Options());await monitoring.StartMonitoringAsync();await monitoring.WaitForFreshSnapshotAsync(TimeSpan.FromSeconds(1));
+        transport.HoldNextRealtime();await transport.WaitUntilHeldAsync();var stopping=monitoring.StopMonitoringAsync();Assert.False(stopping.IsCompleted);
+        transport.ReleaseHeldRealtime();await stopping;Assert.Equal(MonitoringConnectionState.Connected,monitoring.State);Assert.Null(monitoring.StrictFault);Assert.DoesNotContain(monitoring.OperationTrace,x=>!x.Succeeded);Assert.Equal(0,ErrorCount(monitoring.Diagnostics.Snapshot()));
+    }
+
+    [Fact]
     public async Task LatchedReadFailureRejectsBeginBeforeTransport()
     {
         var transport=new AsyncTransport();transport.ReleaseFirstRealtime();await using var monitoring=Service(transport);

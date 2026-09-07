@@ -329,3 +329,11 @@ both the transaction and background monitor from issuing FC03 during the
 observed Flash blackout. The delay is not configurable through CLI. Any error
 after the quiet period still locks the strict session, consumes the already
 reserved SAVE budget and cannot trigger a retry.
+
+The next hardware attempt confirmed SAVE and public ConfigStore completion but
+exposed a planned-shutdown race: canceling the monitor while an FC03 was in
+flight recorded a false Timeout and correctly caused `DO_NOT_REBOOT`. Strict
+shutdown now acquires the shared request gate first, lets any in-flight poll
+finish, then cancels the idle monitor loop. A real request timeout still
+latches before the gate becomes available; only planned-stop cancellation is
+avoided. Non-strict WPF stop behavior is unchanged.

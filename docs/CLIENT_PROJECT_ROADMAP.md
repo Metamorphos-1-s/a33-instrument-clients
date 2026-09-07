@@ -85,3 +85,9 @@ and power-cycle verified at the authoritative brightness-3 baseline. The
 software now applies a fixed one-second SAVE response quiet period while
 holding the shared request gate; SAVE remains single-attempt and any later
 error still fails the session. A new independent qualification is required.
+
+A subsequent attempt confirmed the delayed SAVE path but found that planned
+strict shutdown could cancel an in-flight FC03 and manufacture a Timeout. The
+strict stop path now drains the shared request gate before cancellation, while
+real timeouts remain latched. The affected workflow is preserved and cannot be
+resumed; another independent qualification is required after device recovery.
