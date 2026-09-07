@@ -1,8 +1,9 @@
 # A33 Instrument Clients
 
 Client Stage 0 contracts and protocol libraries for the A33 weighing instrument.
-The STM32 protocol source of truth is the sibling repository
-`stm32f103rbt6_a33` at commit `9e242c7649ad79ac4c3bae347b3259847f4bc09e`.
+The fixed STM32 protocol source of truth for the current PC Stage 2B work is
+the sibling repository `stm32f103rbt6_a33` at commit
+`71a61249645bff6249286ac801d7f468786cfe85`.
 
 This repository contains a native TypeScript WeChat Mini Program core and a
 .NET 10/WPF PC skeleton. Hardware communication is intentionally deferred to
@@ -17,8 +18,8 @@ Stage 1; protocol tests consume the JSON contracts under `contracts/`.
 
 ## Verification
 
-Run TypeScript tests with Node 20+ after installing dependencies in
-`apps/wechat-mini` (`npm ci && npm test`). Build and test the PC solution with
+Run TypeScript tests with Node 20+ after installing the checked-in pnpm lockfile
+in `apps/wechat-mini` (`pnpm install --frozen-lockfile && pnpm test`). Build and test the PC solution with
 .NET 10 on Windows (`dotnet build apps/pc/A33.Instrument.sln` and
 `dotnet test apps/pc/tests/A33.Instrument.Protocol.Tests`). The executed
 Stage 0-V gate is recorded in `docs/STAGE0_TOOLCHAIN_VALIDATION.md`; hardware
@@ -89,7 +90,13 @@ run and 10/10 connection cycles. PC Client Stage 1 hardware validation is
 complete.
 
 PC Stage 2A runtime-operation infrastructure (ZERO/TARE/CLEAR TARE/NET/GROSS)
-is developed on branch `pc-stage2a-runtime-operations`. Hardware writes remain
-gated pending explicit authorization and safe test-state confirmation. The
-automated gate is 33/33 PC tests, Debug/Release build clean, 23/23 WeChat
-tests, and 69 register definitions validated without overlap.
+is complete in the current branch history. TCP and RS485 runtime-operation
+evidence exists; RS232 full post-fix runtime validation and part of the Stage
+2A evidence closeout remain. WeChat runtime operations are not implemented.
+
+PC Stage 2B provides the safe configuration foundation and a protected fixed
+TCP brightness persistence workflow. Brightness RAM apply/cancel and a clean
+read-only hardware baseline are verified. General WPF Flash saving is not
+exposed, and the two-SAVE/two-reboot persistence qualification has not started.
+See `docs/CLIENT_PROJECT_ROADMAP.md` and
+`docs/PC_STAGE2B_CONFIGURATION_TRANSACTIONS.md` for the exact boundary.

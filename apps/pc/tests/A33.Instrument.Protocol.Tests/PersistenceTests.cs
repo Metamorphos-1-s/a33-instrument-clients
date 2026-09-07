@@ -488,6 +488,30 @@ public sealed class PersistenceTests
         Assert.Equal(PersistencePhase.ResultUncertain, journal.Phase); Assert.Equal(1, device.SaveCalls);
     }
 
+    [Fact] public async Task FinalStabilityCoversFullWindowWithReadOnlySamples()
+    {
+        var device=new FakePersistenceDevice(Active(3),Store(),0);var clock=new FakeClock();
+        var report=await new FinalPersistenceStabilityService(device,Baseline(),clock,new FinalStabilityPolicy(TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(1))).RunAsync();
+        Assert.True(report.Passed);Assert.Equal(5,report.DurationSeconds);Assert.Equal(6,report.Samples.Length);Assert.Equal(0,device.ApplyCalls);Assert.Equal(0,device.SaveCalls);
+    }
+
+    [Fact] public void FinalStabilityValidatorRejectsShortOrTamperedPass()
+    {
+        var now=DateTimeOffset.UtcNow;var sample=new FinalStabilitySample(now,Baseline().Manifest.ActiveArraySha256,3,Store(),new MailboxSnapshot(0,0,0,0,new ushort[12]));
+        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(5),5,true,null,[sample,sample]),Baseline()));
+        var dirty=sample with{ConfigStore=Store() with{ConfigDirty=true,CurrentRevision=11}};
+        Assert.Throws<InvalidDataException>(()=>FinalStabilityReportValidator.ValidatePass(new(now,now.AddSeconds(600),600,true,null,[sample,dirty]),Baseline()));
+    }
+
+    [Theory][InlineData("active")][InlineData("dirty")][InlineData("mailbox")]
+    public async Task FinalStabilityStopsOnFirstInvariantFailure(string failure)
+    {
+        var active=Active(3);var store=Store();if(failure=="active")active[0]++;if(failure=="dirty")store=store with{ConfigDirty=true,CurrentRevision=11};
+        var device=new FakePersistenceDevice(active,store,0){MailboxState=failure=="mailbox"?(ushort)1:(ushort)0};var clock=new FakeClock();
+        var report=await new FinalPersistenceStabilityService(device,Baseline(),clock,new FinalStabilityPolicy(TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(1))).RunAsync();
+        Assert.False(report.Passed);Assert.Single(report.Samples);Assert.Equal(0,device.ApplyCalls);Assert.Equal(0,device.SaveCalls);
+    }
+
     private static ConfigurationPersistenceService Service(FakePersistenceDevice device, FakeClock? clock = null) =>
         new(device, Safety(Store()), clock ?? new FakeClock(), new PersistencePollingPolicy(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2)),
             new ConfigStoreSamplingPolicy(3, 2, TimeSpan.FromMilliseconds(1)));

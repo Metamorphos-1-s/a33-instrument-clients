@@ -5,7 +5,7 @@ namespace A33.Instrument.Core;
 
 public enum MonitoringConnectionState { Disconnected, Connecting, Connected, Monitoring, Degraded, Reconnecting, Faulted, Disconnecting }
 public enum TransportMode { Tcp, Rtu }
-public sealed record MonitoringOptions(TransportMode Mode,string Host="192.168.1.100",int Port=502,string SerialPort="",int BaudRate=115200,byte UnitId=1,int ConnectTimeoutMs=3000,int RequestTimeoutMs=1000,int PollIntervalMs=200,int DataBits=8,Parity Parity=Parity.None,StopBits StopBits=StopBits.One);
+public sealed record MonitoringOptions(TransportMode Mode,string Host="192.168.1.100",int Port=502,string SerialPort="",int BaudRate=115200,byte UnitId=1,int ConnectTimeoutMs=3000,int RequestTimeoutMs=1000,int PollIntervalMs=200,int DataBits=8,Parity Parity=Parity.None,StopBits StopBits=StopBits.One,int AutoReconnectAttempts=3);
 public sealed record InstrumentSnapshot(long DisplayMassUg,long NetMassUg,long GrossMassUg,long TareMassUg,byte Unit,byte DecimalPlaces,byte Division,bool Stable,bool Zero,bool TareActive,bool Overload,int Raw,int FilteredRaw,uint Sequence,ushort CheckweighState,bool DisplayLocked,bool ConfigDirty,uint FaultMask,DateTimeOffset CapturedAt);
 
 public sealed class CommunicationDiagnostics

@@ -27,6 +27,8 @@ public sealed class ConfigurationTransactionService
 
     public async Task<ConfigurationSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
     {
+        if (State == ConfigurationTransactionState.ResultUncertain)
+            throw new InvalidOperationException("RESULT_UNCERTAIN locks this configuration session; disconnect and establish a fresh session before continuing.");
         await WaitFreshAsync(cancellationToken);
         await gate.WaitAsync(cancellationToken);
         try { return await RefreshCoreAsync(cancellationToken); }
@@ -59,12 +61,13 @@ public sealed class ConfigurationTransactionService
             Notify();
             activeToken = await NextTokenAsync(cancellationToken);
             var response = await SubmitAsync(9, activeToken.Value, cancellationToken);
-            if (response.ResultCode != 0) throw new InvalidOperationException($"BEGIN result {response.ResultCode}");
+            if (response.ResultCode != 0) { activeToken=null;State=ConfigurationTransactionState.Error;Notify();throw new InvalidOperationException($"BEGIN result {response.ResultCode}"); }
             foreach (var field in snapshot.Fields.Where(f => f.IsDirty))
-                await monitoring.WithCommandExclusiveAsync(c => c.WriteMultipleAsync((ushort)(field.Address + 0x40), field.Edited, cancellationToken), cancellationToken);
+                try{await monitoring.WithCommandExclusiveAsync(c => c.WriteMultipleAsync((ushort)(field.Address + 0x40), field.Edited, cancellationToken), cancellationToken);}
+                catch(Exception error){throw new AmbiguousDeviceCommandException("Staging write may have reached the device but its result is unknown.",error);}
             activeToken = await NextTokenAsync(cancellationToken);
             response = await SubmitAsync(10, activeToken.Value, cancellationToken);
-            if (response.ResultCode != 0) throw new InvalidOperationException($"VALIDATE result {response.ResultCode}");
+            if (response.ResultCode != 0) {State=ConfigurationTransactionState.AppliedRam;Notify();throw new InvalidOperationException($"VALIDATE result {response.ResultCode}");}
             validated = true;
             State = ConfigurationTransactionState.AppliedRam;
             Notify();
@@ -89,12 +92,10 @@ public sealed class ConfigurationTransactionService
             Notify();
             activeToken = await NextTokenAsync(cancellationToken);
             var response = await SubmitAsync(11, activeToken.Value, cancellationToken);
-            if (response.ResultCode != 0) throw new InvalidOperationException($"APPLY result {response.ResultCode}");
+            if (response.ResultCode != 0) {State=ConfigurationTransactionState.AppliedRam;Notify();throw new InvalidOperationException($"APPLY result {response.ResultCode}");}
             activeToken = null;
             validated = false;
-            await RefreshCoreAsync(cancellationToken);
-            State = ConfigurationTransactionState.AppliedRam;
-            Notify();
+            try{await RefreshCoreAsync(cancellationToken);}catch(Exception error){throw new AmbiguousDeviceCommandException("APPLY was accepted but Active readback is unknown.",error);}
             return CommandExecutionState.Succeeded;
         }
         catch (AmbiguousDeviceCommandException)
@@ -114,10 +115,10 @@ public sealed class ConfigurationTransactionService
             if (!activeToken.HasValue) throw new InvalidOperationException("No active transaction.");
             activeToken = await NextTokenAsync(cancellationToken);
             var response = await SubmitAsync(12, activeToken.Value, cancellationToken);
-            if (response.ResultCode != 0) throw new InvalidOperationException($"CANCEL result {response.ResultCode}");
+            if (response.ResultCode != 0) {State=ConfigurationTransactionState.AppliedRam;Notify();throw new InvalidOperationException($"CANCEL result {response.ResultCode}");}
             activeToken = null;
             validated = false;
-            await RefreshCoreAsync(cancellationToken);
+            try{await RefreshCoreAsync(cancellationToken);}catch(Exception error){throw new AmbiguousDeviceCommandException("CANCEL was accepted but configuration readback is unknown.",error);}
         }
         catch (AmbiguousDeviceCommandException)
         {

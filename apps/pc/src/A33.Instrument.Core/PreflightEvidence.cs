@@ -97,8 +97,8 @@ public static class PreflightEvidenceValidator
 
     public static ValidatedPreflightBinding Validate(
         string evidenceRoot, string workflowId, string currentClientCommit,
-        TrustedPersistenceBaseline baseline, DateTimeOffset now, bool requireFresh = true,
-        string? currentToolVersion = null, string? currentToolSha256 = null)
+        TrustedPersistenceBaseline baseline, DateTimeOffset now,
+        string currentToolVersion, string currentToolSha256, bool requireFresh = true)
     {
         if (!Guid.TryParse(workflowId, out _)) throw new InvalidDataException("Preflight workflow ID must be a GUID.");
         if (!Directory.Exists(evidenceRoot)) throw new InvalidDataException("Preflight evidence root does not exist.");
@@ -118,8 +118,9 @@ public static class PreflightEvidenceValidator
             throw new InvalidDataException("Preflight evidence identity or baseline binding mismatch.");
         if (summary.Identity is not { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 })
             throw new InvalidDataException("Preflight device identity does not match the fixed contract.");
-        if ((currentToolVersion is not null && summary.ToolAssemblyVersion != currentToolVersion) ||
-            (currentToolSha256 is not null && summary.ToolSha256 != currentToolSha256))
+        if (string.IsNullOrWhiteSpace(currentToolVersion) || currentToolVersion == "unknown" ||
+            currentToolSha256.Length != 64 || currentToolSha256.Any(x => !Uri.IsHexDigit(x)) ||
+            summary.ToolAssemblyVersion != currentToolVersion || summary.ToolSha256 != currentToolSha256)
             throw new InvalidDataException("Preflight evidence was not produced by the current HardwareValidation tool binary.");
         if (summary.CompletedAtUtc > now || (requireFresh && now - summary.CompletedAtUtc > MaximumEvidenceAge))
             throw new InvalidDataException("Preflight evidence is expired or from the future.");

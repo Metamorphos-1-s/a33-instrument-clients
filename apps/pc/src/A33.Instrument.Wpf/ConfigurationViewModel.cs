@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Windows;
 using A33.Instrument.Core;
 
@@ -7,29 +6,122 @@ namespace A33.Instrument.Wpf;
 public sealed partial class MainViewModel
 {
     private ConfigurationTransactionService? configuration;
-    private ConfigurationTransactionService Configuration => configuration ??= new ConfigurationTransactionService(service);
-    public string ConfigurationState => Configuration.State.ToString();
-    public string ConfigurationDifferences => string.Join(Environment.NewLine, Configuration.Differences.Select(d => $"{d.Key}: {d.Current} -> {d.Edited} {d.Unit}"));
-    public bool ConfigurationDirty => Configuration.Differences.Count > 0;
-    public AsyncRelayCommand RefreshConfigurationCommand => new(RefreshConfigurationAsync);
-    public AsyncRelayCommand ValidateConfigurationCommand => new(ValidateConfigurationAsync, () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
-    public AsyncRelayCommand ApplyConfigurationCommand => new(() => ApplyConfigurationAsync(false), () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
-    public AsyncRelayCommand SaveConfigurationCommand => new(() => ApplyConfigurationAsync(true), () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
-    public AsyncRelayCommand CancelConfigurationCommand => new(CancelConfigurationAsync, () => State == MonitoringConnectionState.Monitoring && !runtimeBusy);
-    public IReadOnlyList<ConfigurationFieldDefinition> ConfigurationFields => ConfigurationContract.EditableFields;
+    private ConfigurationTransactionService Configuration
+    {
+        get
+        {
+            if (configuration is not null) return configuration;
+            configuration = new ConfigurationTransactionService(service);
+            configuration.StateChanged += ConfigurationServiceStateChanged;
+            return configuration;
+        }
+    }
+    private ConfigurationTransactionState ConfigurationTransactionState => configuration?.State ?? ConfigurationTransactionState.Disconnected;
+
+    public string ConfigurationState => ConfigurationTransactionState.ToString();
+    public string ConfigurationDifferences => configuration is null
+        ? ""
+        : string.Join(Environment.NewLine, configuration.Differences.Select(d => $"{d.Key}: {d.Current} -> {d.Edited} {d.Unit}"));
+    public bool ConfigurationDirty => configuration?.Differences.Count > 0;
+    public bool ConfigurationTransactionActive => ConfigurationUiPolicy.ConfigurationTransactionActive(ConfigurationTransactionState);
+    public string ConfigurationScope => "Stage 2B仅开放亮度(0-7)的RAM事务；Flash保存尚未作为产品功能开放。";
+
+    public AsyncRelayCommand RefreshConfigurationCommand { get; private set; } = null!;
+    public AsyncRelayCommand ValidateConfigurationCommand { get; private set; } = null!;
+    public AsyncRelayCommand ApplyConfigurationCommand { get; private set; } = null!;
+    public AsyncRelayCommand CancelConfigurationCommand { get; private set; } = null!;
+    public AsyncRelayCommand EditBrightnessCommand { get; private set; } = null!;
+
     private string brightnessText = "";
     public string BrightnessText { get => brightnessText; set { brightnessText = value; OnPropertyChanged(); } }
-    public AsyncRelayCommand EditBrightnessCommand => new(() => { if (int.TryParse(BrightnessText, out var value)) Configuration.Edit("brightness", value); ConfigurationStateChanged(); Refresh(); return Task.CompletedTask; }, () => State == MonitoringConnectionState.Monitoring && !runtimeBusy && Configuration.Snapshot is not null);
-    public AsyncRelayCommand BeginConfigurationCommand => new(async () => { try { await Configuration.BeginAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }, () => ConfigurationDirty && State == MonitoringConnectionState.Monitoring && !runtimeBusy);
 
-    private async Task RefreshConfigurationAsync() { try { var snapshot = await Configuration.RefreshAsync(); var field = snapshot.Fields.FirstOrDefault(f => f.Key == "brightness"); if (field is not null) BrightnessText = field.Edited[0].ToString(); } catch (Exception error) { service.Diagnostics.Error(error); MessageBox.Show(error.Message, "Configuration refresh failed", MessageBoxButton.OK, MessageBoxImage.Error); } Refresh(); }
-    private async Task ValidateConfigurationAsync() { try { await Configuration.ValidateAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
-    private async Task ApplyConfigurationAsync(bool save)
+    private void InitializeConfigurationCommands()
     {
-        var message = save ? "将写入设备 Flash。保存期间请勿断电，完成后将重新连接并回读。不会自动重复发送。" : "仅应用到当前运行状态，尚未持久化，设备重启后可能恢复原值。";
-        if (MessageBox.Show(message, save ? "保存配置" : "应用配置", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
-        runtimeBusy = true; Refresh(); try { await Configuration.ApplyRamAsync(save); } catch (Exception error) { service.Diagnostics.Error(error); } finally { runtimeBusy = false; Refresh(); }
+        RefreshConfigurationCommand = Command(RefreshConfigurationAsync,
+            () => ConfigurationUiPolicy.CanRefresh(State, service.IsStale, runtimeBusy || runtime.State != CommandExecutionState.Idle, ConfigurationTransactionState));
+        EditBrightnessCommand = Command(EditBrightnessAsync,
+            () => ConfigurationUiPolicy.CanEdit(State, service.IsStale, runtimeBusy || runtime.State != CommandExecutionState.Idle,
+                HasUncertainResult, ConfigurationTransactionState, configuration?.Snapshot is not null));
+        ValidateConfigurationCommand = Command(ValidateConfigurationAsync,
+            () => ConfigurationUiPolicy.CanValidate(State, service.IsStale, runtimeBusy || runtime.State != CommandExecutionState.Idle,
+                HasUncertainResult, ConfigurationTransactionState, ConfigurationDirty));
+        ApplyConfigurationCommand = Command(ApplyConfigurationAsync,
+            () => ConfigurationUiPolicy.CanApplyRam(State, service.IsStale, runtimeBusy || runtime.State != CommandExecutionState.Idle,
+                HasUncertainResult, ConfigurationTransactionState, ConfigurationDirty));
+        CancelConfigurationCommand = Command(CancelConfigurationAsync,
+            () => ConfigurationUiPolicy.CanCancel(State, service.IsStale, runtimeBusy || runtime.State != CommandExecutionState.Idle,
+                HasUncertainResult, ConfigurationTransactionState));
     }
-    private async Task CancelConfigurationAsync() { try { await Configuration.CancelAsync(); } catch (Exception error) { service.Diagnostics.Error(error); } Refresh(); }
-    private void ConfigurationStateChanged() { OnPropertyChanged(nameof(ConfigurationState)); OnPropertyChanged(nameof(ConfigurationDifferences)); OnPropertyChanged(nameof(ConfigurationDirty)); }
+
+    private Task EditBrightnessAsync()
+    {
+        if (!int.TryParse(BrightnessText, out var value)) throw new InvalidOperationException("亮度必须是0到7之间的整数。");
+        Configuration.Edit("brightness", value);
+        Refresh();
+        return Task.CompletedTask;
+    }
+
+    private async Task RefreshConfigurationAsync()
+    {
+        runtimeBusy = true; Refresh();
+        try
+        {
+            var snapshot = await Configuration.RefreshAsync();
+            BrightnessText = snapshot.Fields.Single(f => f.Key == "brightness").Edited[0].ToString();
+        }
+        finally { runtimeBusy = false; Refresh(); }
+    }
+
+    private async Task ValidateConfigurationAsync()
+    {
+        runtimeBusy = true; Refresh();
+        try { await Configuration.ValidateAsync(); }
+        finally { runtimeBusy = false; Refresh(); }
+    }
+
+    private async Task ApplyConfigurationAsync()
+    {
+        const string message = "仅应用亮度到当前RAM运行状态，尚未持久化；设备重启后恢复Flash中的值。";
+        if (MessageBox.Show(message, "应用亮度到RAM", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+        runtimeBusy = true;
+        Refresh();
+        try { await Configuration.ApplyRamAsync(false); }
+        finally { runtimeBusy = false; Refresh(); }
+    }
+
+    private async Task CancelConfigurationAsync()
+    {
+        runtimeBusy = true; Refresh();
+        try { await Configuration.CancelAsync(); }
+        finally { runtimeBusy = false; Refresh(); }
+    }
+
+    private void ResetConfigurationSession()
+    {
+        if (configuration is null) return;
+        configuration.StateChanged -= ConfigurationServiceStateChanged;
+        configuration = null;
+        BrightnessText = "";
+        ConfigurationStateChanged();
+    }
+
+    private void ConfigurationServiceStateChanged(object? sender, EventArgs e) => Refresh();
+
+    private void ConfigurationStateChanged()
+    {
+        OnPropertyChanged(nameof(ConfigurationState));
+        OnPropertyChanged(nameof(ConfigurationDifferences));
+        OnPropertyChanged(nameof(ConfigurationDirty));
+        OnPropertyChanged(nameof(ConfigurationTransactionActive));
+        RaiseConfigurationCanExecuteChanged();
+    }
+
+    private void RaiseConfigurationCanExecuteChanged()
+    {
+        RefreshConfigurationCommand?.RaiseCanExecuteChanged();
+        EditBrightnessCommand?.RaiseCanExecuteChanged();
+        ValidateConfigurationCommand?.RaiseCanExecuteChanged();
+        ApplyConfigurationCommand?.RaiseCanExecuteChanged();
+        CancelConfigurationCommand?.RaiseCanExecuteChanged();
+    }
 }

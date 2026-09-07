@@ -7,6 +7,31 @@ PC Client Stage 2B PERSISTENCE SOFTWARE READY FOR STRICT READ-ONLY PREFLIGHT
 Real SAVE and reboot persistence validation NOT RUN
 ```
 
+The clean-baseline recovery Preflight workflow
+`242f9c19-349d-4d2d-b4ad-0d45e1c2dda4` is independently reviewed and archived.
+It proves that a complete physical power cycle restored Mailbox token/command
+to 0/0, ConfigStore to IDLE and dirty 0, revision to 22/22, and retained slot
+2, sequence 22, brightness 3 and the authoritative Active 64/64 hash. The
+evidence is expired and is an audit record only; it cannot authorize a SAVE or
+replace the required fresh Preflight and on-site gate.
+
+## WPF Stage 2B surface
+
+The WPF configuration panel exposes only brightness `0-7` and the verified
+Refresh, Validate, Apply RAM and Cancel transaction steps. It does not expose a
+general Flash SAVE action. Flash persistence is explicitly described as not
+open as a product function; the protected fixed hardware-validation runner is
+not presented as an end-user save command.
+
+Configuration commands are persistent command instances with shared state
+updates. Writes require a fresh MONITORING snapshot, an idle runtime-operation
+path and the correct configuration phase. A validated configuration transaction
+blocks runtime operations until Apply RAM or Cancel. `RESULT_UNCERTAIN` locks
+the entire configuration session, including Refresh; Disconnect remains the
+safe exit. Leaving MONITORING discards the WPF configuration session, so
+reconnection requires a new configuration Refresh. The remaining safe fields, general Flash
+save UI and calibration are Stage 2C work.
+
 ## Dirty-baseline strict preflight
 
 Strict read-only Preflight workflow
@@ -180,9 +205,25 @@ Each SAVE budget is reserved atomically before the only send attempt. Recovery
 never retransmits a reserved SAVE. `RESULT_UNCERTAIN` and explicit failure use a
 locked authorization stage and cannot continue automatically.
 
+Each persistence-runner process session also atomically records a unique
+session summary, environment and shared Modbus client trace in the workflow
+directory. FC03, FC06, FC16, Staging writes and Mailbox command IDs 9-13 are
+derived from the actual trace, including success/failure and typed Timeout,
+CRC, MBAP, TID, Unit, Modbus exception, bad-frame and transport errors. The
+persistence connection sets automatic reconnect attempts to zero; SAVE itself
+has no retry path.
+
 After reboot 1, before cycle B writes, the client requires Mailbox token 0,
 IDLE/clean ConfigStore, and exact slot/sequence/revision continuity with cycle A
 SAVE confirmation plus the brightness-4 Active snapshot. After reboot 2 it
 requires the same metadata continuity with cycle B, then exact baseline 64/64,
 baseline SHA-256, and brightness 3. Either mismatch becomes
 `RESULT_UNCERTAIN`; no subsequent SAVE is sent.
+
+After the second reboot produces a complete 64/64 restoration, the same
+read-only connection runs the fixed final stability service for at least 600
+seconds at one-second intervals. Every sample requires the authoritative
+Active hash, brightness 3, idle Mailbox, IDLE/clean ConfigStore, equal
+revisions and a legal slot. `final-stability.json` is atomic and cannot be
+overwritten; an existing PASS is accepted only after its duration and every
+sample are revalidated. A failure is preserved and is not rerun automatically.

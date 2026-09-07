@@ -1,0 +1,39 @@
+# A33 Client Project Roadmap
+
+## Delivery stages
+
+| Stage | Scope | Current status |
+|---|---|---|
+| Stage 0 | Protocol contracts, golden vectors and toolchain validation | Complete |
+| Stage 1 | PC and WeChat read-only monitoring | PC complete; WeChat Android complete; iOS not run |
+| Stage 2A | Runtime operations | PC software and TCP/RS485 evidence substantially complete; RS232 full post-fix runtime validation and part of evidence closeout remain; WeChat runtime operations are not implemented |
+| Stage 2B | Safe PC configuration foundation and fixed TCP persistence verification | RAM transaction foundation complete; clean TCP read-only baseline confirmed; fixed brightness persistence hardware workflow not yet run |
+| Stage 2C | Product configuration and calibration | Not started |
+| Stage 3 | Cross-platform acceptance, packaging, installation and release | Not started |
+
+## Stage 2B boundary
+
+Stage 2B owns the guarded PC configuration transaction core, Mailbox token and
+uncertainty rules, complete 64-register Active/Staging handling, ConfigStore
+public-state verification, atomic recovery journal, evidence-bound Strict
+Preflight, and one fixed TCP brightness persistence qualification workflow:
+brightness `3 -> 4 -> 3`, at most two SAVE requests, each sent once, with two
+operator-controlled physical reboots and final 64/64 restoration.
+
+The archived clean Preflight proves that a physical power cycle restored the
+device to brightness 3, dirty 0, revision 22/22, slot 2 and sequence 22 while
+the Active configuration matched the authority. It does not prove either SAVE
+cycle and cannot substitute for a fresh evidence-bound Preflight at write time.
+
+General WPF Flash persistence, productized editing of the remaining safe
+fields, mobile configuration, calibration, factory reset, communication/Slave
+ID settings and raw register access belong to Stage 2C. BLE, RS232 and RS485
+persistence are not claimed by the fixed Stage 2B TCP workflow.
+
+Stage 3 owns distribution and release acceptance. No earlier stage completion
+is a product release declaration.
+
+Before the fixed Stage 2B hardware workflow begins, the software scope is
+frozen with no general WPF Flash action, evidence-bound current-tool identity,
+zero automatic reconnect for persistence sessions, per-session Modbus request
+traces, and a fixed final 600-second read-only stability gate.

@@ -35,7 +35,7 @@ public sealed class PersistenceEvidenceGateTests
     [Fact] public async Task CompletePreflightEvidenceValidatesAndBinds()
     {
         using var files = new TempDirectory(); var created = await CreateEvidenceAsync(files.Root);
-        var binding = PreflightEvidenceValidator.Validate(files.Root, created.WorkflowId, ClientCommit, Baseline(), created.Now.AddMinutes(1));
+        var binding = ValidateEvidence(files.Root, created, created.Now.AddMinutes(1));
         Assert.Equal(created.WorkflowId, binding.WorkflowId); Assert.Equal(PersistenceBaselineContract.ActiveSha256, PersistenceBaselineContract.ComputeActiveSha256(binding.ActiveConfiguration));
     }
 
@@ -44,8 +44,8 @@ public sealed class PersistenceEvidenceGateTests
     {
         using var files = new TempDirectory(); var created = await CreateEvidenceAsync(files.Root);
         Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, created.WorkflowId, ClientCommit,
-            Baseline(), created.Now.AddMinutes(1), currentToolVersion: mismatch == "version" ? "different" : created.Summary.ToolAssemblyVersion,
-            currentToolSha256: mismatch == "hash" ? new string('F', 64) : created.Summary.ToolSha256));
+            Baseline(), created.Now.AddMinutes(1), mismatch == "version" ? "different" : created.Summary.ToolAssemblyVersion,
+            mismatch == "hash" ? new string('F', 64) : created.Summary.ToolSha256));
     }
 
     [Fact] public async Task EnvironmentFileCarriesCompleteRunAndBuildIdentity()
@@ -77,11 +77,11 @@ public sealed class PersistenceEvidenceGateTests
             "workflow" => environment with { WorkflowId = Guid.NewGuid().ToString() },
             _ => environment
         });
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, created.WorkflowId, ClientCommit, Baseline(), created.Now.AddMinutes(1)));
+        Assert.Throws<InvalidDataException>(() => ValidateEvidence(files.Root, created, created.Now.AddMinutes(1)));
     }
 
     [Theory]
-    [InlineData("fail")] [InlineData("expired")] [InlineData("client")] [InlineData("firmware")]
+    [InlineData("fail")] [InlineData("expired")] [InlineData("schema")] [InlineData("client")] [InlineData("firmware")]
     [InlineData("map")] [InlineData("baseline")] [InlineData("writes")] [InlineData("retry")]
     public async Task UnsafePreflightSummaryIsRejected(string failure)
     {
@@ -89,6 +89,7 @@ public sealed class PersistenceEvidenceGateTests
         var created = await CreateEvidenceAsync(files.Root, summary => failure switch
         {
             "fail" => summary with { FinalStatus = "FAIL" },
+            "schema" => summary with { SchemaVersion = 1 },
             "client" => summary with { ClientCommit = new string('B', 40) },
             "firmware" => summary with { Stm32Commit = new string('C', 40) },
             "map" => summary with { Identity = summary.Identity with { MapVersion = 0x0103 } },
@@ -98,22 +99,22 @@ public sealed class PersistenceEvidenceGateTests
             _ => summary
         });
         var now = failure == "expired" ? created.Now.Add(PreflightEvidenceValidator.MaximumEvidenceAge).AddSeconds(1) : created.Now.AddMinutes(1);
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, created.WorkflowId, ClientCommit, Baseline(), now));
+        Assert.Throws<InvalidDataException>(() => ValidateEvidence(files.Root, created, now));
     }
 
     [Fact] public async Task TamperedOrDamagedEvidenceIsRejected()
     {
         using var files = new TempDirectory(); var created = await CreateEvidenceAsync(files.Root);
         await File.AppendAllTextAsync(Path.Combine(created.Directory, "active-snapshot-1.json"), " ");
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, created.WorkflowId, ClientCommit, Baseline(), created.Now));
+        Assert.Throws<InvalidDataException>(() => ValidateEvidence(files.Root, created, created.Now));
         await File.WriteAllTextAsync(Path.Combine(created.Directory, "preflight-summary.json"), "{");
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, created.WorkflowId, ClientCommit, Baseline(), created.Now));
+        Assert.Throws<InvalidDataException>(() => ValidateEvidence(files.Root, created, created.Now));
     }
 
     [Fact] public void MissingPreflightEvidenceIsRejected()
     {
         using var files = new TempDirectory();
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, Guid.NewGuid().ToString(), ClientCommit, Baseline(), DateTimeOffset.UtcNow));
+        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, Guid.NewGuid().ToString(), ClientCommit, Baseline(), DateTimeOffset.UtcNow, "1.0.0", new string('E',64)));
     }
 
     [Fact] public async Task PersistenceRunnerRejectsMissingEvidenceBeforeConnectionFactory()
@@ -135,14 +136,14 @@ public sealed class PersistenceEvidenceGateTests
     {
         using var missingFiles = new TempDirectory(); var missing = await CreateEvidenceAsync(missingFiles.Root);
         File.Delete(Path.Combine(missing.Directory, "environment.json"));
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(missingFiles.Root, missing.WorkflowId, ClientCommit, Baseline(), missing.Now));
+        Assert.Throws<InvalidDataException>(() => ValidateEvidence(missingFiles.Root, missing, missing.Now));
 
         using var damagedFiles = new TempDirectory(); var damaged = await CreateEvidenceAsync(damagedFiles.Root);
         var environmentPath = Path.Combine(damaged.Directory, "environment.json"); await File.WriteAllTextAsync(environmentPath, "{");
         var hashes = damaged.Summary.EvidenceFileSha256.ToDictionary(x => x.Key, x => x.Value); hashes["environment.json"] = PersistenceBaselineContract.ComputeFileSha256(environmentPath);
         var summary = damaged.Summary with { EvidenceFileSha256 = hashes };
         await File.WriteAllTextAsync(Path.Combine(damaged.Directory, "preflight-summary.json"), System.Text.Json.JsonSerializer.Serialize(summary));
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(damagedFiles.Root, damaged.WorkflowId, ClientCommit, Baseline(), damaged.Now));
+        Assert.Throws<InvalidDataException>(() => ValidateEvidence(damagedFiles.Root, damaged, damaged.Now));
     }
 
     [Fact] public async Task SyntacticallyValidEnvironmentWithMissingFieldIsRejectedSemantically()
@@ -161,7 +162,7 @@ public sealed class PersistenceEvidenceGateTests
         hashes["environment.json"] = PersistenceBaselineContract.ComputeFileSha256(environmentPath);
         var summary = created.Summary with { EvidenceFileSha256 = hashes };
         await File.WriteAllTextAsync(Path.Combine(created.Directory, "preflight-summary.json"), System.Text.Json.JsonSerializer.Serialize(summary));
-        Assert.Throws<InvalidDataException>(() => PreflightEvidenceValidator.Validate(files.Root, created.WorkflowId, ClientCommit, Baseline(), created.Now));
+        Assert.Throws<InvalidDataException>(() => ValidateEvidence(files.Root, created, created.Now));
     }
 
     [Fact] public async Task EnvironmentConflictBlocksPersistenceRunnerBeforeConnectionFactory()
@@ -177,6 +178,18 @@ public sealed class PersistenceEvidenceGateTests
         await Assert.ThrowsAsync<InvalidDataException>(() => PersistenceHardwareRunner.RunAsync(AuthorizedArgs(created.WorkflowId),
             () => { calls++; return new InstrumentMonitoringService(); }, files.Root, () => created.Now.AddMinutes(1)));
         Assert.Equal(0, calls);
+    }
+
+    [Fact] public async Task ExpiredEvidenceBlocksPersistenceRunnerBeforeConnectionFactory()
+    {
+        using var files = new TempDirectory();var assembly=typeof(PersistenceHardwareRunner).Assembly;
+        var commit=assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(x=>x.Key=="GitCommit").Value!;
+        var version=assembly.GetName().Version!.ToString();var hash=PersistenceBaselineContract.ComputeFileSha256(assembly.Location);
+        var created=await CreateEvidenceAsync(files.Root,summary=>summary with{ToolAssemblyVersion=version,ToolSha256=hash},clientCommit:commit);
+        var calls=0;
+        await Assert.ThrowsAsync<InvalidDataException>(()=>PersistenceHardwareRunner.RunAsync(AuthorizedArgs(created.WorkflowId),
+            ()=>{calls++;return new InstrumentMonitoringService();},files.Root,()=>created.Now.Add(PreflightEvidenceValidator.MaximumEvidenceAge).AddSeconds(1)));
+        Assert.Equal(0,calls);
     }
 
     private static async Task<CreatedEvidence> CreateEvidenceAsync(
@@ -229,6 +242,9 @@ public sealed class PersistenceEvidenceGateTests
     private static PreflightEnvironmentEvidence EnvironmentEvidence(PreflightSummary summary) => new(
         1, summary.WorkflowId, summary.StartedAtUtc, summary.CompletedAtUtc, summary.ClientCommit,
         summary.ToolAssemblyVersion, summary.ToolSha256, "test-os", ".NET", "x64", "test-machine");
+    private static ValidatedPreflightBinding ValidateEvidence(string root, CreatedEvidence created, DateTimeOffset now) =>
+        PreflightEvidenceValidator.Validate(root, created.WorkflowId, ClientCommit, Baseline(), now,
+            created.Summary.ToolAssemblyVersion, created.Summary.ToolSha256);
     private static IReadOnlyDictionary<string,bool> RequiredGates() => new Dictionary<string,bool>
     {
         ["identity"]=true,["fresh_sample_sequence"]=true,["active_complete"]=true,["active_stable"]=true,
