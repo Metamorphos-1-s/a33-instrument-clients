@@ -58,6 +58,10 @@ error. Manual reboot permission is emitted only after the Waiting session
 trace, environment and summary are written and validated. Recovery validates
 that prior session offline before opening a Transport.
 
+The reboot decision is based only on evidence reopened from disk. Waiting and
+Complete share the same FC16 payload parser and Cycle validator for journal
+budgets, SAVE tokens and the fixed Cycle A/B brightness values.
+
 Final stability evidence must cover the beginning, middle and tail of the full
 600-second UTC window without reversed timestamps or sampling gaps. Complete
 replay remains a zero-connection operation and validates the full journal,

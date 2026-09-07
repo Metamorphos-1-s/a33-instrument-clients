@@ -7,15 +7,15 @@ public static class PersistenceHardwareRunner
     public static Task<int> RunAsync(
         string[] args, Func<InstrumentMonitoringService>? monitoringFactory = null,
         string? evidenceRootOverride = null, Func<DateTimeOffset>? utcNow = null,
-        IPersistenceClock? workflowClock = null, FinalStabilityPolicy? stabilityPolicy = null,TimeSpan? readinessTimeout = null) =>
+        IPersistenceClock? workflowClock = null, FinalStabilityPolicy? stabilityPolicy = null,TimeSpan? readinessTimeout = null,Action<string>? beforeWaitingValidation = null) =>
         PersistenceHardwareAuthorizationGate.ExecuteAfterAuthorizationAsync(args,
             authorization => RunAuthorizedAsync(authorization, monitoringFactory ?? (() => new InstrumentMonitoringService()), evidenceRootOverride,
                 utcNow ?? (() => DateTimeOffset.UtcNow), workflowClock ?? new SystemPersistenceClock(), stabilityPolicy ?? FinalStabilityPolicy.Fixed600Seconds,
-                readinessTimeout ?? TimeSpan.FromSeconds(5)));
+                readinessTimeout ?? TimeSpan.FromSeconds(5),beforeWaitingValidation));
 
     private static async Task<int> RunAuthorizedAsync(
         PersistenceHardwareAuthorization authorization, Func<InstrumentMonitoringService> monitoringFactory,
-        string? evidenceRootOverride, Func<DateTimeOffset> utcNow, IPersistenceClock workflowClock, FinalStabilityPolicy stabilityPolicy,TimeSpan readinessTimeout)
+        string? evidenceRootOverride, Func<DateTimeOffset> utcNow, IPersistenceClock workflowClock, FinalStabilityPolicy stabilityPolicy,TimeSpan readinessTimeout,Action<string>? beforeWaitingValidation)
     {
         var repositoryRoot = RepositoryRoot.Find();
         var evidenceRoot = evidenceRootOverride ?? Path.Combine(repositoryRoot, "Results", "pc_stage2b_hw");
@@ -50,7 +50,7 @@ public static class PersistenceHardwareRunner
             binding = PreflightEvidenceValidator.Validate(evidenceRoot, existingJournal.BoundPreflightWorkflowId, clientCommit, baseline, utcNow(),
                 toolVersion, toolSha256, requireFresh: false);
             if(existingJournal.Phase is PersistencePhase.WaitingForFirstReboot or PersistencePhase.WaitingForSecondReboot)
-                PersistenceCompletionEvidenceValidator.ValidateWaitingSession(Path.GetDirectoryName(journalPath)!,existingJournal,existingJournal.Phase,clientCommit,toolVersion,toolSha256);
+                PersistenceCompletionEvidenceValidator.ValidateWaitingSession(journalPath,existingJournal.Phase,clientCommit,toolVersion,toolSha256);
         }
 
         var workflowDirectory=Path.GetDirectoryName(journalPath)!;
@@ -142,7 +142,7 @@ public static class PersistenceHardwareRunner
         }
         if(exitCode==20)
         {
-            try{PersistenceCompletionEvidenceValidator.ValidateWaitingSession(sessionDirectory,sessionJournal??throw new InvalidDataException("Waiting journal is missing."),sessionJournal!.Phase,clientCommit,toolVersion,toolSha256);Console.WriteLine("MANUAL_REBOOT_REQUIRED; session evidence is complete and clean.");}
+            try{beforeWaitingValidation?.Invoke(sessionDirectory);PersistenceCompletionEvidenceValidator.ValidateWaitingSession(journalPath,sessionJournal?.Phase??throw new InvalidDataException("Waiting journal is missing."),clientCommit,toolVersion,toolSha256);Console.WriteLine("MANUAL_REBOOT_REQUIRED; session evidence is complete and clean.");}
             catch(Exception error){Console.Error.WriteLine($"DO_NOT_REBOOT: {error.Message}");return 24;}
         }
         if(exitCode==0)

@@ -257,6 +257,14 @@ return 20. Failure prints `DO_NOT_REBOOT`, returns 24 and preserves all
 evidence. Recovery validates the preceding Waiting session before creating a
 Transport, so it cannot automatically cross an unclean session.
 
+The decision validator accepts the journal path rather than an in-memory
+journal. It reopens and fully validates the atomic journal, summary, trace and
+environment, then parses each FC16 request payload. The four Mailbox commands
+must be BEGIN/VALIDATE/APPLY/SAVE, the SAVE token must match the corresponding
+Cycle evidence and journal budget, and the sole Staging payload must write
+brightness 4 or 3 to `0x0156` for Cycle A or B respectively. Complete uses the
+same Cycle validator, so Waiting and final replay cannot drift apart.
+
 After reboot 1, before cycle B writes, the client requires Mailbox token 0,
 IDLE/clean ConfigStore, and exact slot/sequence/revision continuity with cycle A
 SAVE confirmation plus the brightness-4 Active snapshot. After reboot 2 it

@@ -73,6 +73,14 @@ public sealed class PersistenceEvidenceGateTests
         Assert.Equal(1,calls);Assert.Equal(1,hardware.SaveCount);
     }
 
+    [Fact] public async Task WaitingDiskValidationFailureReturnsDoNotReboot()
+    {
+        using var files=new TempDirectory();var assembly=typeof(PersistenceHardwareRunner).Assembly;var commit=assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(x=>x.Key=="GitCommit").Value!;var version=assembly.GetName().Version!.ToString();var toolHash=PersistenceBaselineContract.ComputeFileSha256(assembly.Location);
+        var preflight=await CreateEvidenceAsync(files.Root,s=>s with{ToolAssemblyVersion=version,ToolSha256=toolHash},clientCommit:commit);var hardware=new PersistenceTransport(Baseline().Manifest.ActiveRegisters);var output=new StringWriter();var error=new StringWriter();var oldOut=Console.Out;var oldError=Console.Error;
+        try{Console.SetOut(output);Console.SetError(error);var exit=await PersistenceHardwareRunner.RunAsync(AuthorizedArgs(preflight.WorkflowId),()=>new(new SingleTransportFactory(hardware)),files.Root,()=>preflight.Now.AddSeconds(1),beforeWaitingValidation:directory=>{var summaryPath=Directory.GetFiles(directory,"persistence-session-*-summary.json").Single();var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath);var tracePath=Path.Combine(directory,summary.TraceFile);var trace=AtomicJsonFile.Read<ModbusOperationTrace[]>(tracePath);var save=Array.FindIndex(trace,x=>x.MailboxCommandId==13);trace[save]=WithWord(trace[save],0,99);File.Delete(tracePath);AtomicJsonFile.WriteAsync(tracePath,trace).GetAwaiter().GetResult();summary=summary with{TraceSha256=PersistenceBaselineContract.ComputeFileSha256(tracePath)};File.Delete(summaryPath);AtomicJsonFile.WriteAsync(summaryPath,summary).GetAwaiter().GetResult();});Assert.Equal(24,exit);}finally{Console.SetOut(oldOut);Console.SetError(oldError);}
+        Assert.Contains("DO_NOT_REBOOT",error.ToString());Assert.DoesNotContain("MANUAL_REBOOT_REQUIRED",output.ToString());Assert.Equal(1,hardware.SaveCount);
+    }
+
     [Theory][InlineData("missing-a")][InlineData("missing-b")][InlineData("second-save-a")][InlineData("save-final")][InlineData("time-order")]
     public async Task ThreeSessionIntegrityConflictFailsCompleteOffline(string failure)
     {
@@ -88,6 +96,48 @@ public sealed class PersistenceEvidenceGateTests
             File.Delete(target.path);await AtomicJsonFile.WriteAsync(target.path,changed);
         }
         var calls=0;await Assert.ThrowsAnyAsync<Exception>(()=>PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(complete.WorkflowId),()=>{calls++;return new();},files.Root,()=>complete.Now.AddHours(1)));Assert.Equal(0,calls);
+    }
+
+    [Theory]
+    [InlineData("save-token")][InlineData("save-address")][InlineData("save-command")][InlineData("save-zero")][InlineData("save-two")]
+    [InlineData("staging-address")][InlineData("staging-value")][InlineData("fc03-zero")][InlineData("fc03-failed")][InlineData("unknown-function")]
+    [InlineData("trace-non-utc")][InlineData("trace-reverse")][InlineData("trace-outside")][InlineData("success-error")]
+    public async Task CycleTraceSemanticConflictFailsCompleteOffline(string failure)
+    {
+        using var files=new TempDirectory();var complete=await CreateCompleteEvidenceAsync(files.Root);var summaryPath=Directory.GetFiles(complete.Directory,"persistence-session-*-summary.json").Single(path=>AtomicJsonFile.Read<PersistenceSessionSummary>(path).Phase==PersistencePhase.WaitingForFirstReboot.ToString());
+        var summary=AtomicJsonFile.Read<PersistenceSessionSummary>(summaryPath);var tracePath=Path.Combine(complete.Directory,summary.TraceFile);var trace=AtomicJsonFile.Read<ModbusOperationTrace[]>(tracePath).ToList();var save=trace.FindIndex(x=>x.MailboxCommandId==13);var staging=trace.FindIndex(x=>x.FunctionCode==16&&x.Address==0x0156);var read=trace.FindIndex(x=>x.FunctionCode==3);
+        if(failure=="save-token")trace[save]=WithWord(trace[save],0,99);
+        if(failure=="save-address")trace[save]=WithAddress(trace[save],0x0041);
+        if(failure=="save-command")trace[save]=WithWord(trace[save],1,12) with{MailboxCommandId=12};
+        if(failure=="save-zero")trace.RemoveAt(save);
+        if(failure=="save-two")trace.Add(trace[save] with{StartedAtUtc=trace[save].StartedAtUtc.AddMilliseconds(10),CompletedAtUtc=trace[save].CompletedAtUtc.AddMilliseconds(10)});
+        if(failure=="staging-address")trace[staging]=WithAddress(trace[staging],0x0157);
+        if(failure=="staging-value")trace[staging]=WithWord(trace[staging],0,5);
+        if(failure=="fc03-zero")trace.RemoveAll(x=>x.FunctionCode==3);
+        if(failure=="fc03-failed")trace[read]=trace[read] with{Succeeded=false,ErrorCategory="Timeout",Error="timeout"};
+        if(failure=="unknown-function")trace.Add(trace[read] with{FunctionCode=4});
+        if(failure=="trace-non-utc")trace[read]=trace[read] with{StartedAtUtc=trace[read].StartedAtUtc.ToOffset(TimeSpan.FromHours(8))};
+        if(failure=="trace-reverse")trace[read]=trace[read] with{CompletedAtUtc=trace[read].StartedAtUtc.AddMilliseconds(-1)};
+        if(failure=="trace-outside")trace[read]=trace[read] with{StartedAtUtc=summary.StartedAtUtc.AddSeconds(-1)};
+        if(failure=="success-error")trace[read]=trace[read] with{ErrorCategory="BadFrame",Error="stale",ModbusExceptionCode=2};
+        File.Delete(tracePath);await AtomicJsonFile.WriteAsync(tracePath,trace);summary=summary with{Requests=PersistenceTraceStatistics.FromTrace(trace),Errors=PersistenceTraceErrors.FromTrace(trace),TraceSha256=PersistenceBaselineContract.ComputeFileSha256(tracePath)};File.Delete(summaryPath);await AtomicJsonFile.WriteAsync(summaryPath,summary);
+        var calls=0;await Assert.ThrowsAnyAsync<Exception>(()=>PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(complete.WorkflowId),()=>{calls++;return new();},files.Root,()=>complete.Now.AddHours(1)));Assert.Equal(0,calls);
+    }
+
+    [Theory][InlineData("mailbox-token")][InlineData("journal-token")][InlineData("reserved")][InlineData("missing")][InlineData("damaged")]
+    public async Task JournalWaitingBindingConflictFailsCompleteOffline(string failure)
+    {
+        using var files=new TempDirectory();var complete=await CreateCompleteEvidenceAsync(files.Root);var path=Path.Combine(complete.Directory,"persistence-journal.json");var journal=await PersistenceJournalStore.ReadAsync(path);
+        if(failure=="missing"){File.Delete(path);}
+        else if(failure=="damaged"){File.Delete(path);File.WriteAllText(path,"{");}
+        else
+        {
+            if(failure=="mailbox-token")journal=journal with{CycleAEvidence=journal.CycleAEvidence with{MailboxTokens=[1,2,3]}};
+            if(failure=="journal-token")journal=journal with{SaveTokens=[5,6]};
+            if(failure=="reserved")journal=journal with{ReservedSaveCount=1};
+            File.Delete(path);await AtomicJsonFile.WriteAsync(path,journal);
+        }
+        var calls=0;if(failure=="missing")Assert.NotEqual(0,await PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(complete.WorkflowId),()=>{calls++;return new();},files.Root,()=>complete.Now.AddHours(1)));else await Assert.ThrowsAnyAsync<Exception>(()=>PersistenceHardwareRunner.RunAsync(AuthorizedRecoveryArgs(complete.WorkflowId),()=>{calls++;return new();},files.Root,()=>complete.Now.AddHours(1)));Assert.Equal(0,calls);
     }
 
     [Theory]
@@ -389,13 +439,16 @@ public sealed class PersistenceEvidenceGateTests
     private static async Task WriteCycleSessionAsync(string directory,string workflowId,string commit,string version,string toolHash,PersistencePhase phase,DateTimeOffset started,ushort saveToken)
     {
         var id=Guid.NewGuid().ToString();var traceFile=$"persistence-session-{id}-request-trace.json";var environmentFile=$"persistence-session-{id}-environment.json";
-        var trace=new[]{Trace16(0x0040,12,9,1),Trace16(0x0156,1,null,0),Trace16(0x0040,12,10,2),Trace16(0x0040,12,11,3),Trace16(0x0040,12,13,saveToken)}.Select((x,i)=>x with{StartedAtUtc=started.AddMilliseconds(i),CompletedAtUtc=started.AddMilliseconds(i+1)}).ToArray();
+        var brightness=phase==PersistencePhase.WaitingForFirstReboot?(ushort)4:(ushort)3;
+        var trace=new[]{new ModbusOperationTrace(default,default,3,0,1,null,true,"0300000001","03020000",null,null,null),Trace16(0x0040,12,9,1),Trace16(0x0156,1,null,brightness),Trace16(0x0040,12,10,2),Trace16(0x0040,12,11,3),Trace16(0x0040,12,13,saveToken)}.Select((x,i)=>x with{StartedAtUtc=started.AddMilliseconds(i),CompletedAtUtc=started.AddMilliseconds(i+1)}).ToArray();
         var tracePath=Path.Combine(directory,traceFile);await AtomicJsonFile.WriteAsync(tracePath,trace);var completed=started.AddSeconds(1);
         var environment=new PreflightEnvironmentEvidence(1,workflowId,started,completed,commit,version,toolHash,"test-os",".NET","x64","test");var environmentPath=Path.Combine(directory,environmentFile);await AtomicJsonFile.WriteAsync(environmentPath,environment);
-        var summary=new PersistenceSessionSummary(2,id,workflowId,commit,version,toolHash,started,completed,1000,new(1,1,0,1,0),PersistenceTraceStatistics.FromTrace(trace),PersistenceTraceErrors.FromTrace(trace),new(5,5,0,0,0,0,0,0,0,0,0),null,0,1,1,phase.ToString(),null,traceFile,PersistenceBaselineContract.ComputeFileSha256(tracePath),environmentFile,PersistenceBaselineContract.ComputeFileSha256(environmentPath),null,null);
+        var summary=new PersistenceSessionSummary(2,id,workflowId,commit,version,toolHash,started,completed,1000,new(1,1,0,1,0),PersistenceTraceStatistics.FromTrace(trace),PersistenceTraceErrors.FromTrace(trace),new(6,6,0,0,0,0,0,0,0,0,0),null,0,1,1,phase.ToString(),null,traceFile,PersistenceBaselineContract.ComputeFileSha256(tracePath),environmentFile,PersistenceBaselineContract.ComputeFileSha256(environmentPath),null,null);
         await AtomicJsonFile.WriteAsync(Path.Combine(directory,$"persistence-session-{id}-summary.json"),summary);
     }
     private static ModbusOperationTrace Trace16(ushort address,ushort quantity,ushort? command,ushort token){var bytes=new byte[6+quantity*2];bytes[0]=16;bytes[1]=(byte)(address>>8);bytes[2]=(byte)address;bytes[3]=(byte)(quantity>>8);bytes[4]=(byte)quantity;bytes[5]=(byte)(quantity*2);if(quantity>0){bytes[6]=(byte)(token>>8);bytes[7]=(byte)token;}if(command.HasValue){bytes[8]=(byte)(command.Value>>8);bytes[9]=(byte)command.Value;}return new(default,default,16,address,quantity,command,true,Convert.ToHexString(bytes),"BB",null,null,null);}
+    private static ModbusOperationTrace WithWord(ModbusOperationTrace item,int index,ushort value){var bytes=Convert.FromHexString(item.RequestHex);var pdu=bytes.Length>7&&bytes[7]==16?7:0;bytes[pdu+6+index*2]=(byte)(value>>8);bytes[pdu+7+index*2]=(byte)value;return item with{RequestHex=Convert.ToHexString(bytes)};}
+    private static ModbusOperationTrace WithAddress(ModbusOperationTrace item,ushort address){var bytes=Convert.FromHexString(item.RequestHex);var pdu=bytes.Length>7&&bytes[7]==16?7:0;bytes[pdu+1]=(byte)(address>>8);bytes[pdu+2]=(byte)address;return item with{Address=address,RequestHex=Convert.ToHexString(bytes)};}
 
     private static StrictPreflightReport Report()
     {
