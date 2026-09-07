@@ -1,0 +1,22 @@
+{
+  "ResponseToken": 17,
+  "ResultCode": 0,
+  "CommandState": 0,
+  "LastCommandId": 11,
+  "Raw": [
+    17,
+    0,
+    0,
+    11,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "Busy": false,
+  "Pending": false
+}
