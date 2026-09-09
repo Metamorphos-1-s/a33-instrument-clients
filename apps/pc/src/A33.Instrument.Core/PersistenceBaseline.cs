@@ -60,8 +60,8 @@ public sealed record TrustedPersistenceBaseline(PersistenceBaselineManifest Mani
 
 public static class PersistenceBaselineContract
 {
-    public const string RelativeManifestPath = "Results/pc_stage2b_050b_baseline/persistence_baseline_manifest.json";
-    public const string BaselineId = "a33-stage2b-fw050b-brightness3-20260909";
+    public const string RelativeManifestPath = "Results/pc_stage2b_050c_baseline/persistence_baseline_manifest.json";
+    public const string BaselineId = "a33-stage2b-fw050c-brightness3-20260909";
     public const string ActiveSha256 = Stage2BDeviceContract.PcJsonActiveSha256;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = false };
 
@@ -122,8 +122,8 @@ public static class PersistenceBaselineContract
                 BatteryDividerBottomOhm: Stage2BDeviceContract.BatteryDividerBottomOhm })
             throw new InvalidDataException("Baseline Manifest does not match the fixed Stage 2B contract.");
         if (!manifest.SourceEvidenceFile.EndsWith("/baseline-capture-summary.json", StringComparison.Ordinal) ||
-            manifest.SourceClientCommit != "17280de1a0da85fabfc061095679e3695554bf87" ||
-            manifest.SourceEvidenceCommit != "17280de1a0da85fabfc061095679e3695554bf87" ||
+            manifest.SourceClientCommit != manifest.SourceEvidenceCommit ||
+            manifest.SourceEvidenceCommit != Stage2BDeviceContract.SourceEvidenceCommit ||
             !string.IsNullOrEmpty(manifest.FirstStage2BWriteEvidenceFile) ||
             !string.IsNullOrEmpty(manifest.FirstStage2BWriteEvidenceCommit) ||
             manifest.EvidenceCompletedAtUtc <= manifest.EvidenceStartedAtUtc)

@@ -4,7 +4,7 @@
   "serviceUuid": "0000ffe0-0000-1000-8000-00805f9b34fb",
   "notifyUuid": "0000ffe1-0000-1000-8000-00805f9b34fb",
   "writeUuid": "0000ffe2-0000-1000-8000-00805f9b34fb",
-  "firmwareVersion": "0x050B",
+  "firmwareVersion": "0x050C",
   "schemaVersion": 2,
   "registerMap": "0x0104",
   "messageTypes": {"FAST_WEIGHT":1,"SLOW_STATUS":2,"CHECKWEIGH_STATUS":3,"COMMAND_REQUEST":128,"COMMAND_RESPONSE":129},

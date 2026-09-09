@@ -32,7 +32,7 @@ public static class BaselineCaptureRunner
             return 2;
         }
         var repositoryRoot = RepositoryRoot.Find();
-        var root = outputRoot ?? Path.Combine(repositoryRoot, "Results", "pc_stage2b_050b_baseline");
+        var root = outputRoot ?? Path.Combine(repositoryRoot, Stage2BDeviceContract.BaselineRoot);
         var workflowId = Guid.NewGuid().ToString("D");
         var directory = PersistenceEvidenceDirectory.CreateUnique(root, workflowId, DateTimeOffset.UtcNow);
         var assembly = typeof(BaselineCaptureRunner).Assembly;

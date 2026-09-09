@@ -19,7 +19,7 @@ public static class StrictPreflightRunner
     public static async Task<int> RunAsync(string[] args, Func<IPersistenceClock, IStrictPreflightSession>? sessionFactory = null)
     {
         var repositoryRoot = RepositoryRoot.Find();
-        var root = Get(args, "output-root", Path.Combine(repositoryRoot, "Results", "pc_stage2b_050b_hw"));
+        var root = Get(args, "output-root", Path.Combine(repositoryRoot, Stage2BDeviceContract.PersistenceEvidenceRoot));
         var workflowId = Guid.NewGuid().ToString("D");
         var outputDirectory = PersistenceEvidenceDirectory.CreateUnique(root, workflowId, DateTimeOffset.UtcNow);
         var assembly = typeof(StrictPreflightRunner).Assembly;
@@ -182,7 +182,9 @@ internal static class RepositoryRoot
             var current = new DirectoryInfo(start);
             while (current is not null)
             {
-                if (File.Exists(Path.Combine(current.FullName, PersistenceBaselineContract.RelativeManifestPath))) return current.FullName;
+                if (File.Exists(Path.Combine(current.FullName, PersistenceBaselineContract.RelativeManifestPath)) ||
+                    File.Exists(Path.Combine(current.FullName, ".git")) ||
+                    File.Exists(Path.Combine(current.FullName, "apps", "pc", "A33.Instrument.sln"))) return current.FullName;
                 current = current.Parent;
             }
         }

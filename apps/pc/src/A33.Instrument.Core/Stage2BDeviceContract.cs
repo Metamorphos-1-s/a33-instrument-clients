@@ -2,16 +2,20 @@ namespace A33.Instrument.Core;
 
 public static class Stage2BDeviceContract
 {
-    public const ushort FirmwareVersion = 0x050B;
+    public const ushort FirmwareVersion = 0x050C;
     public const ushort SchemaVersion = 2;
     public const ushort RegisterMapVersion = 0x0104;
     public const byte UnitId = 1;
     public const string TcpHost = "192.168.1.100";
     public const int TcpPort = 502;
     public const string TcpEndpoint = "192.168.1.100:502";
-    public const string Stm32ProductionCommit = "a3cc744a6cae85d670008fe6a1bf96eae63bd2a7";
-    public const string Stm32EvidenceCommit = "34cd363d30d6b0f271f6f9b9ba73c8bd91262dc6";
-    public const string Stm32ReleaseElfSha256 = "F6607DE318CE03925C27D8F4B8AA98020F3FC016EF8221229BBEEA8BE16C6FAC";
+    public const string Stm32ProductionCommit = "2af4abe39ddb3336d91be64fe8c75425c0dbc1aa";
+    public const string Stm32EvidenceCommit = "de181c0b3feea020b224915b070dbb2cf5b6219f";
+    public const string Stm32ReleaseElfSha256 = "895999B7547935827FC64DFF70EE5F4DF7B00E1FD413706E1BFDBEFAD5925E44";
+    public const string SourceEvidenceCommit = "SOURCE_EVIDENCE_COMMIT_PENDING";
+    public const string BaselineId = "a33-stage2b-fw050c-brightness3-20260909";
+    public const string BaselineRoot = "Results/pc_stage2b_050c_baseline";
+    public const string PersistenceEvidenceRoot = "Results/pc_stage2b_050c_hw";
     public const uint BatteryDividerTopOhm = 47000;
     public const uint BatteryDividerBottomOhm = 10000;
     public const ushort OriginalBrightness = 3;
