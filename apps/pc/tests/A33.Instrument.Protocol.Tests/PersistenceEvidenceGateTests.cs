@@ -49,6 +49,18 @@ public sealed class PersistenceEvidenceGateTests
             PersistenceBaselineContract.BaselineId);
     }
 
+    [Fact] public void PersistenceRunnerUsesOnlyTheCentralCurrentEvidenceRoot()
+    {
+        Assert.Equal("Results/pc_stage2b_050c_hw", Stage2BDeviceContract.PersistenceEvidenceRoot);
+        var root = Directory.GetParent(AppContext.BaseDirectory)!;
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "apps", "pc", "tools", "A33.Instrument.HardwareValidation", "PersistenceHardwareRunner.cs")))
+            root = root.Parent;
+        Assert.NotNull(root);
+        var source = File.ReadAllText(Path.Combine(root!.FullName, "apps", "pc", "tools", "A33.Instrument.HardwareValidation", "PersistenceHardwareRunner.cs"));
+        Assert.DoesNotContain("Results/pc_stage2b_050b_hw", source, StringComparison.Ordinal);
+        Assert.Contains("Stage2BDeviceContract.PersistenceEvidenceRoot", source, StringComparison.Ordinal);
+    }
+
     [Fact] public async Task CompletePreflightEvidenceValidatesAndBinds()
     {
         using var files = new TempDirectory(); var created = await CreateEvidenceAsync(files.Root);

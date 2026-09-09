@@ -8,6 +8,19 @@ remain historical and are not valid input for a new workflow.
 bootstrap command and requires explicit read-only confirmation before transport
 creation. Formal Stage 2B persistence writes are not part of baseline capture.
 
+## 0x050C Runner root correction
+
+The first 0x050C write-qualification invocation stopped before any Persistence
+Workflow, TCP Transport, or command was created because the Runner still
+selected the historical `Results/pc_stage2b_050b_hw` path. The correction binds
+the production Runner to the centralized
+`Stage2BDeviceContract.PersistenceEvidenceRoot`, which resolves to
+`Results/pc_stage2b_050c_hw`. There is no public arbitrary root override and no
+fallback or cross-root scan. The failed invocation produced no additional
+hardware evidence and did not change the fresh Preflight
+`c63ccf3b-89fc-4e31-a412-06640ca13d05`. A new fresh Preflight is required before
+Cycle A; the final two-SAVE qualification has not started.
+
 The accepted candidate is `a33-stage2b-fw050c-brightness3-20260909`, sourced
 from TCP capture workflow `fe1430f4-01a1-4832-9dc7-68379713feb7` using source
 commit `b853dc5aa75628a3c2ff32cab003a0b15c7ecd0a`. Its PC JSON Active hash is

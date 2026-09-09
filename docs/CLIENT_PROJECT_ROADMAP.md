@@ -11,6 +11,16 @@ Stage 2B now targets the independent Firmware 0x050C baseline under
 The brightness-3 precondition is complete, but the formal two-SAVE/two-reboot
 Stage 2B persistence qualification has not started.
 
+The 0x050C freeze review found and fixed a Persistence Runner omission: its
+default persistence evidence root had remained hard-coded to the historical
+`pc_stage2b_050b_hw` directory. The Runner now obtains the sole production root
+from `Stage2BDeviceContract.PersistenceEvidenceRoot`, with no public evidence
+root override and no legacy fallback. The fresh Preflight
+`c63ccf3b-89fc-4e31-a412-06640ca13d05` remains preserved as a read-only audit
+record and is not reusable for write authorization. The earlier Cycle A
+attempt stopped before Workflow creation, Transport creation, or any write;
+Stage 2B SAVE and physical-cycle counts remain `0/2`.
+
 ## Delivery stages
 
 | Stage | Scope | Current status |
