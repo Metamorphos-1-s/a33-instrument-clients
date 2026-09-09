@@ -12,7 +12,7 @@ public static class Stage2BDeviceContract
     public const string Stm32ProductionCommit = "2af4abe39ddb3336d91be64fe8c75425c0dbc1aa";
     public const string Stm32EvidenceCommit = "de181c0b3feea020b224915b070dbb2cf5b6219f";
     public const string Stm32ReleaseElfSha256 = "895999B7547935827FC64DFF70EE5F4DF7B00E1FD413706E1BFDBEFAD5925E44";
-    public const string SourceEvidenceCommit = "SOURCE_EVIDENCE_COMMIT_PENDING";
+    public const string SourceEvidenceCommit = "b853dc5aa75628a3c2ff32cab003a0b15c7ecd0a";
     public const string BaselineId = "a33-stage2b-fw050c-brightness3-20260909";
     public const string BaselineRoot = "Results/pc_stage2b_050c_baseline";
     public const string PersistenceEvidenceRoot = "Results/pc_stage2b_050c_hw";

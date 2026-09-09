@@ -1,17 +1,19 @@
 # PC Client Stage 2B Configuration Transactions
 
-Firmware `0x050B` rebaseline work uses the centralized `Stage2BDeviceContract`
-and a separate `Results/pc_stage2b_050b_baseline` capture root. The legacy
-Firmware `0x050A` Results remain historical and are not valid input for a new
-workflow. `capture-persistence-baseline` is a fixed TCP/Unit-ID, FC03-only
+Firmware `0x050C` rebaseline work uses the centralized `Stage2BDeviceContract`
+and separate `Results/pc_stage2b_050c_baseline` and
+`Results/pc_stage2b_050c_hw` roots. Firmware `0x050A` and `0x050B` Results
+remain historical and are not valid input for a new workflow.
+`capture-persistence-baseline` is a fixed TCP/Unit-ID, FC03-only
 bootstrap command and requires explicit read-only confirmation before transport
 creation. Formal Stage 2B persistence writes are not part of baseline capture.
 
-The accepted candidate is `a33-stage2b-fw050b-brightness3-20260909`, sourced
-from TCP capture workflow `58827d39-3b1d-4eb6-b054-f0619673ec47`. Its PC JSON
-Active hash is `B7D78D5B...18EE73`; the separately calculated STM32 binary
-register hash is `4BA7DA26...4DD98`. The preconditioning SAVE and physical power
-cycle were 1/1; formal Stage 2B SAVE and reboot counts remain zero.
+The accepted candidate is `a33-stage2b-fw050c-brightness3-20260909`, sourced
+from TCP capture workflow `fe1430f4-01a1-4832-9dc7-68379713feb7` using source
+commit `b853dc5aa75628a3c2ff32cab003a0b15c7ecd0a`. Its PC JSON Active hash is
+`B7D78D5B...18EE73`; the separately calculated STM32 binary register hash is
+`4BA7DA26...4DD98`. The preconditioning SAVE and physical power cycle were
+1/1; formal Stage 2B SAVE and reboot counts remain zero.
 
 ## Current status
 

@@ -1,12 +1,15 @@
 # A33 Client Project Roadmap
 
-## Firmware 0x050B rebaseline
+## Firmware 0x050C rebaseline
 
-Stage 2B now targets the independent Firmware 0x050B baseline under
-`Results/pc_stage2b_050b_baseline` and future workflow evidence under
-`Results/pc_stage2b_050b_hw`. The legacy Firmware 0x050A Results and recovery
-journal are historical only. The brightness-3 precondition is complete, but the
-formal two-SAVE/two-reboot Stage 2B persistence qualification has not started.
+Stage 2B now targets the independent Firmware 0x050C baseline under
+`Results/pc_stage2b_050c_baseline` and future workflow evidence under
+`Results/pc_stage2b_050c_hw`. It is bound to STM32 Production
+`2af4abe39ddb3336d91be64fe8c75425c0dbc1aa` and Evidence
+`de181c0b3feea020b224915b070dbb2cf5b6219f`. The legacy Firmware 0x050A and
+0x050B Results remain historical only and are rejected by the current contract.
+The brightness-3 precondition is complete, but the formal two-SAVE/two-reboot
+Stage 2B persistence qualification has not started.
 
 ## Delivery stages
 

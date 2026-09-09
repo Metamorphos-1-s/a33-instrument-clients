@@ -39,6 +39,20 @@ public sealed record PersistenceBaselineManifest(
     [property: JsonPropertyName("active_array_sha256")] string ActiveArraySha256,
     [property: JsonPropertyName("audit_note")] string AuditNote)
 {
+    [JsonPropertyName("capture_workflow_id")] public string CaptureWorkflowId { get; init; } = "";
+    [JsonPropertyName("capture_tool_assembly_version")] public string CaptureToolAssemblyVersion { get; init; } = "";
+    [JsonPropertyName("capture_tool_sha256")] public string CaptureToolSha256 { get; init; } = "";
+    [JsonPropertyName("capture_fc03_attempted")] public int CaptureFc03Attempted { get; init; }
+    [JsonPropertyName("capture_fc03_succeeded")] public int CaptureFc03Succeeded { get; init; }
+    [JsonPropertyName("capture_fc03_failed")] public int CaptureFc03Failed { get; init; }
+    [JsonPropertyName("capture_fc06")] public int CaptureFc06 { get; init; }
+    [JsonPropertyName("capture_fc16")] public int CaptureFc16 { get; init; }
+    [JsonPropertyName("capture_command_count")] public int CaptureCommandCount { get; init; }
+    [JsonPropertyName("capture_automatic_retries")] public int CaptureAutomaticRetries { get; init; }
+    [JsonPropertyName("capture_staging_register_count")] public int CaptureStagingRegisterCount { get; init; }
+    [JsonPropertyName("capture_mailbox_idle")] public bool CaptureMailboxIdle { get; init; }
+    [JsonPropertyName("capture_config_store_state")] public int CaptureConfigStoreState { get; init; }
+    [JsonPropertyName("capture_config_store_clean")] public bool CaptureConfigStoreClean { get; init; }
     [JsonPropertyName("stm32_production_commit")] public string Stm32ProductionCommit { get; init; } = "";
     [JsonPropertyName("stm32_evidence_commit")] public string Stm32EvidenceCommit { get; init; } = "";
     [JsonPropertyName("stm32_release_elf_sha256")] public string Stm32ReleaseElfSha256 { get; init; } = "";
@@ -133,6 +147,14 @@ public static class PersistenceBaselineContract
             manifest.ExcludedEvidence is null || manifest.ExcludedEvidence.Length != 0 ||
             manifest.SourceEvidenceFileSha256 is null || manifest.SourceEvidenceFileSha256.Count != 8)
             throw new InvalidDataException("Baseline provenance is incomplete.");
+        if (!Guid.TryParse(manifest.CaptureWorkflowId, out _) ||
+            manifest.CaptureToolAssemblyVersion != "1.0.0.0" || manifest.CaptureToolSha256.Length != 64 ||
+            manifest.CaptureFc03Attempted != 17 || manifest.CaptureFc03Succeeded != 17 ||
+            manifest.CaptureFc03Failed != 0 || manifest.CaptureFc06 != 0 || manifest.CaptureFc16 != 0 ||
+            manifest.CaptureCommandCount != 0 || manifest.CaptureAutomaticRetries != 0 ||
+            manifest.CaptureStagingRegisterCount != 64 || !manifest.CaptureMailboxIdle ||
+            manifest.CaptureConfigStoreState != 0 || !manifest.CaptureConfigStoreClean)
+            throw new InvalidDataException("Baseline capture statistics or state binding is incomplete.");
         var computed = ComputeActiveSha256(manifest.ActiveRegisters);
         if (computed != ActiveSha256 || manifest.ActiveArraySha256 != ActiveSha256)
             throw new InvalidDataException("Baseline Active SHA-256 mismatch.");
@@ -168,5 +190,18 @@ public static class PersistenceBaselineContract
         var trace = AtomicJsonFile.Read<PreflightRequestTrace[]>(Path.Combine(directory, "request-trace.json"));
         if (trace.Length != 17 || trace.Any(x => x.FunctionCode != 3 || !x.Succeeded || x.RegisterCount is 0 or > 16))
             throw new InvalidDataException("Baseline capture trace is not the fixed successful FC03-only plan.");
+        var summary = root;
+        if (summary.GetProperty("WorkflowId").GetString() != manifest.CaptureWorkflowId ||
+            summary.GetProperty("ClientCommit").GetString() != manifest.SourceEvidenceCommit ||
+            summary.GetProperty("ToolAssemblyVersion").GetString() != manifest.CaptureToolAssemblyVersion ||
+            summary.GetProperty("ToolSha256").GetString() != manifest.CaptureToolSha256 ||
+            summary.GetProperty("Requests").GetProperty("Fc03Attempted").GetInt32() != manifest.CaptureFc03Attempted ||
+            summary.GetProperty("Requests").GetProperty("Fc03Succeeded").GetInt32() != manifest.CaptureFc03Succeeded ||
+            summary.GetProperty("Requests").GetProperty("Fc06").GetInt32() != manifest.CaptureFc06 ||
+            summary.GetProperty("Requests").GetProperty("Fc16").GetInt32() != manifest.CaptureFc16 ||
+            summary.GetProperty("ConfigStore").GetProperty("State").GetInt32() != manifest.CaptureConfigStoreState ||
+            summary.GetProperty("ConfigStore").GetProperty("ConfigDirty").GetBoolean() == manifest.CaptureConfigStoreClean ||
+            summary.GetProperty("FinalStatus").GetString() != "PASS")
+            throw new InvalidDataException("Baseline capture summary does not match Manifest bindings.");
     }
 }

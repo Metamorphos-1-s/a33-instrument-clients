@@ -8,7 +8,7 @@ namespace A33.Instrument.Protocol.Tests;
 public sealed class BaselineCaptureTests
 {
     [Fact]
-    public async Task ValidFirmware050bBrightness3CapturePasses()
+    public async Task ValidFirmware050cBrightness3CapturePasses()
     {
         using var temp = new CaptureTempDirectory();
         var fake = new CaptureSession();
@@ -116,7 +116,7 @@ public sealed class BaselineCaptureTests
             var started = DateTimeOffset.UtcNow;
             ushort[] values;
             if (address == 0x0103 && count == 1) values = [0];
-            else if (address == 14 && count == 2) values = [0x0104, Failure == "firmware" ? (ushort)0x050A : (ushort)0x050B];
+            else if (address == 14 && count == 2) values = [0x0104, Failure == "firmware" ? (ushort)0x050A : (ushort)0x050C];
             else if (address is >= 0x0100 and <= 0x0130)
             {
                 values = Active.Skip(address - 0x0100).Take(count).ToArray();
