@@ -109,7 +109,9 @@ public sealed class StrictPreflightService(
             ["staging_complete"] = staging.Length == 64,
             ["mailbox_idle"] = !mailbox.Busy && !mailbox.Pending,
             ["config_store_known_consistent_idle"] = store.StatesKnown && store.StatesConsistent && store.State == ConfigStoreState.Idle,
-            ["config_store_clean"] = !store.ConfigDirty && store.CurrentRevision == store.SavedRevision && store.ActiveSlot is 1 or 2,
+            ["config_store_clean"] = !store.ConfigDirty && store.CurrentRevision == store.SavedRevision &&
+                store.CurrentRevision == baseline.Manifest.CurrentRevision &&
+                store.ActiveSlot == baseline.Manifest.ActiveSlot && store.ActiveSequence == baseline.Manifest.ActiveSequence,
             ["request_trace_consistent"] = requests.Fc03Attempted == registers.Trace.Count(x => x.FunctionCode == 3) &&
                 requests.Fc03Succeeded == registers.Trace.Count(x => x.FunctionCode == 3 && x.Succeeded),
             ["errors_clean"] = registers.Errors.IsClean,

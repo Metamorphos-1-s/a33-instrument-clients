@@ -7,6 +7,12 @@ workflow. `capture-persistence-baseline` is a fixed TCP/Unit-ID, FC03-only
 bootstrap command and requires explicit read-only confirmation before transport
 creation. Formal Stage 2B persistence writes are not part of baseline capture.
 
+The accepted candidate is `a33-stage2b-fw050b-brightness3-20260909`, sourced
+from TCP capture workflow `58827d39-3b1d-4eb6-b054-f0619673ec47`. Its PC JSON
+Active hash is `B7D78D5B...18EE73`; the separately calculated STM32 binary
+register hash is `4BA7DA26...4DD98`. The preconditioning SAVE and physical power
+cycle were 1/1; formal Stage 2B SAVE and reboot counts remain zero.
+
 ## Current status
 
 ```text

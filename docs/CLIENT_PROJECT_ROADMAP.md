@@ -1,5 +1,13 @@
 # A33 Client Project Roadmap
 
+## Firmware 0x050B rebaseline
+
+Stage 2B now targets the independent Firmware 0x050B baseline under
+`Results/pc_stage2b_050b_baseline` and future workflow evidence under
+`Results/pc_stage2b_050b_hw`. The legacy Firmware 0x050A Results and recovery
+journal are historical only. The brightness-3 precondition is complete, but the
+formal two-SAVE/two-reboot Stage 2B persistence qualification has not started.
+
 ## Delivery stages
 
 | Stage | Scope | Current status |

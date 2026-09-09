@@ -1,0 +1,77 @@
+{
+  "SchemaVersion": 1,
+  "WorkflowId": "58827d39-3b1d-4eb6-b054-f0619673ec47",
+  "ClientCommit": "17280de1a0da85fabfc061095679e3695554bf87",
+  "ToolAssemblyVersion": "1.0.0.0",
+  "ToolSha256": "6439AD852DBA750D56D96DDB829599F0E11A2C80F75797D74F72C0937B9E5FF5",
+  "StartedAtUtc": "2026-09-09T10:47:33.661679+00:00",
+  "CompletedAtUtc": "2026-09-09T10:47:34.1173187+00:00",
+  "Endpoint": "192.168.1.100:502",
+  "UnitId": 1,
+  "Identity": {
+    "FirmwareVersion": 1291,
+    "SchemaVersion": 2,
+    "MapVersion": 260,
+    "UnitId": 1
+  },
+  "FinalStatus": "PASS",
+  "FailureReasons": [],
+  "PcJsonActiveSha256": "B7D78D5BD4A6DE0BE2C0DA201C167A0178608FCFF49F6297664C87C79018EE73",
+  "Stm32BinaryActiveSha256": "4BA7DA269DECB38D631ED8076A4FE90B7EF70AA04123CF15D5662B7DBBD4DD98",
+  "Connections": {
+    "ConnectionAttempts": 1,
+    "ConnectionSucceeded": 1,
+    "ConnectionFailed": 0,
+    "Disconnects": 1,
+    "AutomaticRetries": 0
+  },
+  "Requests": {
+    "Fc03Attempted": 17,
+    "Fc03Succeeded": 17,
+    "Fc03Failed": 0,
+    "Fc06": 0,
+    "Fc16": 0,
+    "MailboxWrites": 0,
+    "Begin": 0,
+    "Validate": 0,
+    "Apply": 0,
+    "Cancel": 0,
+    "Save": 0,
+    "Reboots": 0
+  },
+  "Errors": {
+    "Timeouts": 0,
+    "CrcErrors": 0,
+    "MbapErrors": 0,
+    "TidErrors": 0,
+    "UnitErrors": 0,
+    "ModbusExceptions": 0,
+    "BadFrames": 0,
+    "TransportErrors": 0,
+    "IsClean": true
+  },
+  "ConfigStore": {
+    "StateMirror1Raw": 0,
+    "StateMirror2Raw": 0,
+    "StateMirror1": 0,
+    "StateMirror2": 0,
+    "ConfigDirty": false,
+    "CurrentRevision": 19,
+    "SavedRevision": 19,
+    "SchemaVersion": 2,
+    "ActiveSlot": 1,
+    "ActiveSequence": 19,
+    "StatesKnown": true,
+    "StatesConsistent": true,
+    "State": 0
+  },
+  "EvidenceFileSha256": {
+    "request-trace.json": "E7064BFE7042EAD4962A1D0A291B144C5743A41584D2043C651EAB1F2AA66993",
+    "active-snapshot-1.json": "967ACFAE376455BEF7769EC38937A51435D9AB1A5DFEC7B3ADB36814EAEC5F75",
+    "active-snapshot-2.json": "967ACFAE376455BEF7769EC38937A51435D9AB1A5DFEC7B3ADB36814EAEC5F75",
+    "staging-snapshot.json": "03F525DB73C8FE91BA4B909172E625F36842A4AFB797FAB9B079097B7A09D273",
+    "mailbox-snapshot.json": "53463384851B6FEAC1C2B42F2BB38BCA45B781904BD3A56FF8CFF63E0F48BCA5",
+    "config-store-snapshot.json": "DC72D0401F22337ED026FC12C44FF5EB0855F686581D07A6A1C9111ED3F0B320",
+    "environment.json": "411F64B71F744F06EA009B0CBFE8E60FC318C8663235DCEFC858FF458AA30596"
+  }
+}

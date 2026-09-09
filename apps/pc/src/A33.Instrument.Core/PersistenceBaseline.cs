@@ -37,15 +37,32 @@ public sealed record PersistenceBaselineManifest(
     [property: JsonPropertyName("hash_algorithm")] string HashAlgorithm,
     [property: JsonPropertyName("canonicalization")] string Canonicalization,
     [property: JsonPropertyName("active_array_sha256")] string ActiveArraySha256,
-    [property: JsonPropertyName("audit_note")] string AuditNote);
+    [property: JsonPropertyName("audit_note")] string AuditNote)
+{
+    [JsonPropertyName("stm32_production_commit")] public string Stm32ProductionCommit { get; init; } = "";
+    [JsonPropertyName("stm32_evidence_commit")] public string Stm32EvidenceCommit { get; init; } = "";
+    [JsonPropertyName("stm32_release_elf_sha256")] public string Stm32ReleaseElfSha256 { get; init; } = "";
+    [JsonPropertyName("stm32_binary_active_sha256")] public string Stm32BinaryActiveSha256 { get; init; } = "";
+    [JsonPropertyName("battery_divider_top_ohm")] public uint BatteryDividerTopOhm { get; init; }
+    [JsonPropertyName("battery_divider_bottom_ohm")] public uint BatteryDividerBottomOhm { get; init; }
+    [JsonPropertyName("active_slot")] public ushort ActiveSlot { get; init; }
+    [JsonPropertyName("active_sequence")] public uint ActiveSequence { get; init; }
+    [JsonPropertyName("current_revision")] public uint CurrentRevision { get; init; }
+    [JsonPropertyName("saved_revision")] public uint SavedRevision { get; init; }
+    [JsonPropertyName("preconditioning_save_count")] public int PreconditioningSaveCount { get; init; }
+    [JsonPropertyName("preconditioning_power_cycle_count")] public int PreconditioningPowerCycleCount { get; init; }
+    [JsonPropertyName("stage2b_save_count_at_capture")] public int Stage2BSaveCountAtCapture { get; init; }
+    [JsonPropertyName("stage2b_reboot_count_at_capture")] public int Stage2BRebootCountAtCapture { get; init; }
+    [JsonPropertyName("source_evidence_file_sha256")] public Dictionary<string, string> SourceEvidenceFileSha256 { get; init; } = [];
+}
 
 public sealed record TrustedPersistenceBaseline(PersistenceBaselineManifest Manifest, string ManifestPath, string ManifestSha256);
 
 public static class PersistenceBaselineContract
 {
-    public const string RelativeManifestPath = "Results/pc_stage2b_hw/persistence_baseline_manifest.json";
-    public const string BaselineId = "a33-stage2b-prewrite-brightness3-20260906";
-    public const string ActiveSha256 = "8C2E5BA6BF39436E5DF2956DE7E09A058DDA330C6462073483E4E70CAD1CACEE";
+    public const string RelativeManifestPath = "Results/pc_stage2b_050b_baseline/persistence_baseline_manifest.json";
+    public const string BaselineId = "a33-stage2b-fw050b-brightness3-20260909";
+    public const string ActiveSha256 = Stage2BDeviceContract.PcJsonActiveSha256;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = false };
 
     public static string ComputeActiveSha256(IReadOnlyList<ushort> registers)
@@ -56,6 +73,18 @@ public static class PersistenceBaselineContract
     }
 
     public static string ComputeFileSha256(string path) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+
+    public static string ComputeBinaryActiveSha256(IReadOnlyList<ushort> registers)
+    {
+        if (registers.Count != 64) throw new InvalidDataException("The persistence baseline must contain exactly 64 registers.");
+        var bytes = new byte[128];
+        for (var i = 0; i < registers.Count; i++)
+        {
+            bytes[i * 2] = (byte)(registers[i] >> 8);
+            bytes[i * 2 + 1] = (byte)registers[i];
+        }
+        return Convert.ToHexString(SHA256.HashData(bytes));
+    }
 
     public static TrustedPersistenceBaseline LoadFromRepository(string repositoryRoot)
     {
@@ -74,31 +103,41 @@ public static class PersistenceBaselineContract
 
     public static void Validate(PersistenceBaselineManifest manifest)
     {
-        if (manifest.SchemaVersion != 1 || manifest.BaselineId != BaselineId ||
-            manifest.Stm32Commit != "71a61249645bff6249286ac801d7f468786cfe85" ||
-            manifest is not { FirmwareVersion: 0x050A, DeviceSchema: 2, RegisterMap: 0x0104, UnitId: 1,
-                TcpEndpoint: "192.168.1.100:502", ActiveStartAddress: 0x0100, RegisterCount: 64,
-                BrightnessAddress: 0x0116, OriginalBrightness: 3, ProvenBeforeFirstStage2BWrite: true })
+        if (manifest.SchemaVersion != 2 || manifest.BaselineId != BaselineId ||
+            manifest.Stm32Commit != Stage2BDeviceContract.Stm32ProductionCommit ||
+            manifest.Stm32ProductionCommit != Stage2BDeviceContract.Stm32ProductionCommit ||
+            manifest.Stm32EvidenceCommit != Stage2BDeviceContract.Stm32EvidenceCommit ||
+            manifest.Stm32ReleaseElfSha256 != Stage2BDeviceContract.Stm32ReleaseElfSha256 ||
+            manifest.Stm32BinaryActiveSha256 != Stage2BDeviceContract.Stm32BinaryActiveSha256 ||
+            manifest is not { FirmwareVersion: Stage2BDeviceContract.FirmwareVersion,
+                DeviceSchema: Stage2BDeviceContract.SchemaVersion,
+                RegisterMap: Stage2BDeviceContract.RegisterMapVersion, UnitId: Stage2BDeviceContract.UnitId,
+                TcpEndpoint: Stage2BDeviceContract.TcpEndpoint, ActiveStartAddress: 0x0100, RegisterCount: 64,
+                BrightnessAddress: 0x0116, OriginalBrightness: Stage2BDeviceContract.OriginalBrightness,
+                ProvenBeforeFirstStage2BWrite: true, ActiveSlot: Stage2BDeviceContract.ExpectedBaselineSlot,
+                ActiveSequence: Stage2BDeviceContract.ExpectedBaselineSequence,
+                CurrentRevision: 19, SavedRevision: 19, PreconditioningSaveCount: 1,
+                PreconditioningPowerCycleCount: 1, Stage2BSaveCountAtCapture: 0,
+                Stage2BRebootCountAtCapture: 0, BatteryDividerTopOhm: Stage2BDeviceContract.BatteryDividerTopOhm,
+                BatteryDividerBottomOhm: Stage2BDeviceContract.BatteryDividerBottomOhm })
             throw new InvalidDataException("Baseline Manifest does not match the fixed Stage 2B contract.");
-        if (manifest.SourceEvidenceFile != "Results/pc_stage2b_hw/tcp_strict_preflight.json" ||
-            manifest.SourceClientCommit != "0fb02a7996d7cdb11f8d4b1074c1e3fa1df6dacf" ||
-            manifest.SourceEvidenceCommit != "d17eac246e282b8c05dc8cd85407ced1d3a24edf" ||
-            manifest.FirstStage2BWriteEvidenceFile != "Results/pc_stage2b_hw/tcp_cancel_transaction_trace.json" ||
-            manifest.FirstStage2BWriteEvidenceCommit != "c1c330a797137264b5f050e67901f09d2518b4c2" ||
+        if (!manifest.SourceEvidenceFile.EndsWith("/baseline-capture-summary.json", StringComparison.Ordinal) ||
+            manifest.SourceClientCommit != "17280de1a0da85fabfc061095679e3695554bf87" ||
+            manifest.SourceEvidenceCommit != "17280de1a0da85fabfc061095679e3695554bf87" ||
+            !string.IsNullOrEmpty(manifest.FirstStage2BWriteEvidenceFile) ||
+            !string.IsNullOrEmpty(manifest.FirstStage2BWriteEvidenceCommit) ||
             manifest.EvidenceCompletedAtUtc <= manifest.EvidenceStartedAtUtc)
             throw new InvalidDataException("Baseline source provenance does not match the audited pre-write evidence chain.");
-        if (manifest.ActiveRegisters is null || string.IsNullOrWhiteSpace(manifest.ReadMethod) || !manifest.ReadMethod.Contains("4x16", StringComparison.Ordinal) ||
-            manifest.ExcludedEvidence is null || manifest.ExcludedEvidence.Length != 2 ||
-            manifest.ExcludedEvidence.Any(x => x is null || x.Classification != "PRESERVED_NON_AUTHORITATIVE_EVIDENCE") ||
-            !manifest.ExcludedEvidence.Select(x => x.File).Order().SequenceEqual(new[]
-            {
-                "Results/pc_stage2b_hw/tcp_active_config_raw_1.json",
-                "Results/pc_stage2b_hw/tcp_active_config_raw_2.json"
-            }))
+        if (manifest.ActiveRegisters is null || string.IsNullOrWhiteSpace(manifest.ReadMethod) ||
+            !manifest.ReadMethod.Contains("4x16", StringComparison.Ordinal) ||
+            manifest.ExcludedEvidence is null || manifest.ExcludedEvidence.Length != 0 ||
+            manifest.SourceEvidenceFileSha256 is null || manifest.SourceEvidenceFileSha256.Count != 8)
             throw new InvalidDataException("Baseline provenance is incomplete.");
         var computed = ComputeActiveSha256(manifest.ActiveRegisters);
         if (computed != ActiveSha256 || manifest.ActiveArraySha256 != ActiveSha256)
             throw new InvalidDataException("Baseline Active SHA-256 mismatch.");
+        if (ComputeBinaryActiveSha256(manifest.ActiveRegisters) != Stage2BDeviceContract.Stm32BinaryActiveSha256)
+            throw new InvalidDataException("Baseline STM32 binary-register SHA-256 mismatch.");
         if (manifest.ActiveRegisters[ConfigurationPersistenceService.BrightnessOffset] != 3)
             throw new InvalidDataException("Baseline brightness is not 3.");
     }
@@ -108,13 +147,26 @@ public static class PersistenceBaselineContract
         var source = Path.GetFullPath(Path.Combine(repositoryRoot, manifest.SourceEvidenceFile));
         using var document = JsonDocument.Parse(File.ReadAllText(source));
         var root = document.RootElement;
-        var first = root.GetProperty("active_snapshot_1").EnumerateArray().Select(x => x.GetUInt16()).ToArray();
-        var second = root.GetProperty("active_snapshot_2").EnumerateArray().Select(x => x.GetUInt16()).ToArray();
+        var directory = Path.GetDirectoryName(source) ?? throw new InvalidDataException("Baseline evidence directory is missing.");
+        foreach (var item in manifest.SourceEvidenceFileSha256)
+        {
+            var evidencePath = Path.Combine(directory, item.Key);
+            if (!File.Exists(evidencePath) || ComputeFileSha256(evidencePath) != item.Value)
+                throw new InvalidDataException($"Baseline source evidence hash mismatch: {item.Key}");
+        }
+        var first = AtomicJsonFile.Read<ushort[]>(Path.Combine(directory, "active-snapshot-1.json"));
+        var second = AtomicJsonFile.Read<ushort[]>(Path.Combine(directory, "active-snapshot-2.json"));
         if (!first.SequenceEqual(manifest.ActiveRegisters) || !second.SequenceEqual(manifest.ActiveRegisters) ||
-            root.GetProperty("firmware_version").GetUInt16() != manifest.FirmwareVersion ||
-            root.GetProperty("map_version").GetUInt16() != manifest.RegisterMap ||
-            root.GetProperty("unit_id").GetByte() != manifest.UnitId ||
-            !root.GetProperty("client_commit").GetString()!.StartsWith(manifest.SourceClientCommit[..7], StringComparison.OrdinalIgnoreCase))
+            root.GetProperty("Identity").GetProperty("FirmwareVersion").GetUInt16() != manifest.FirmwareVersion ||
+            root.GetProperty("Identity").GetProperty("MapVersion").GetUInt16() != manifest.RegisterMap ||
+            root.GetProperty("UnitId").GetByte() != manifest.UnitId ||
+            root.GetProperty("ClientCommit").GetString() != manifest.SourceClientCommit ||
+            root.GetProperty("FinalStatus").GetString() != "PASS" ||
+            root.GetProperty("PcJsonActiveSha256").GetString() != ActiveSha256 ||
+            root.GetProperty("Stm32BinaryActiveSha256").GetString() != Stage2BDeviceContract.Stm32BinaryActiveSha256)
             throw new InvalidDataException("Baseline Manifest does not match its preserved source evidence.");
+        var trace = AtomicJsonFile.Read<PreflightRequestTrace[]>(Path.Combine(directory, "request-trace.json"));
+        if (trace.Length != 17 || trace.Any(x => x.FunctionCode != 3 || !x.Succeeded || x.RegisterCount is 0 or > 16))
+            throw new InvalidDataException("Baseline capture trace is not the fixed successful FC03-only plan.");
     }
 }

@@ -457,7 +457,7 @@ public sealed class PersistenceEvidenceGateTests
         return new StrictPreflightReport(true, [], new(0x050B, 2, 0x0104, 1),
             new(now, now, 0, now, now, 0, 1, 2), new ushort[34], active, active.ToArray(), active.ToArray(),
             baseline.Manifest.ActiveArraySha256, baseline.Manifest.ActiveArraySha256, [], new(0, 0, 0, 0, new ushort[12]),
-            new ConfigStorePreflightEvidence(A33.Instrument.Protocol.WordOrder.HighWordFirst,[0,1,0,0,10,0,10],[2,1,0,7,0],Store()), baseline.Manifest.BaselineId, baseline.Manifest.ActiveArraySha256, baseline.ManifestSha256,
+            new ConfigStorePreflightEvidence(A33.Instrument.Protocol.WordOrder.HighWordFirst,[0,1,0,0,19,0,19],[2,1,0,19,0],Store()), baseline.Manifest.BaselineId, baseline.Manifest.ActiveArraySha256, baseline.ManifestSha256,
             requests, errors, RequiredGates());
     }
 
@@ -492,7 +492,7 @@ public sealed class PersistenceEvidenceGateTests
         ["mailbox_idle"]=true,["config_store_known_consistent_idle"]=true,["config_store_clean"]=true,
         ["request_trace_consistent"]=true,["errors_clean"]=true,["read_only"]=true
     };
-    private static ConfigStoreSnapshot Store() => new(0, 0, ConfigStoreState.Idle, ConfigStoreState.Idle, false, 10, 10, 2, 1, 7);
+    private static ConfigStoreSnapshot Store() => new(0, 0, ConfigStoreState.Idle, ConfigStoreState.Idle, false, 19, 19, 2, 1, 19);
     private static TrustedPersistenceBaseline Baseline() => PersistenceBaselineContract.LoadFromRepository(RepositoryRoot());
     private static string RepositoryRoot()
     {
@@ -517,7 +517,7 @@ public sealed class PersistenceEvidenceGateTests
     {
         private readonly TaskCompletionSource firstRealtime=new(TaskCreationOptions.RunContinuationsAsynchronously);
         private ushort[] staging=baseline.ToArray();private ushort responseToken;private ushort lastCommand;
-        private bool dirty;private uint currentRevision=10;private uint savedRevision=10;private ushort activeSlot=1;private uint activeSequence=7;
+        private bool dirty;private uint currentRevision=19;private uint savedRevision=19;private ushort activeSlot=1;private uint activeSequence=19;
         public ushort[] Active{get;private set;}=baseline.ToArray();public int SaveCount{get;private set;}public int RealtimeAttempts{get;private set;}public bool HoldFirstRealtime{get;init;}public bool IsOpen{get;private set;}public string Endpoint=>"memory://persistence";
         public Task OpenAsync(CancellationToken cancellationToken){cancellationToken.ThrowIfCancellationRequested();IsOpen=true;return Task.CompletedTask;}
         public Task CloseAsync(){IsOpen=false;return Task.CompletedTask;}

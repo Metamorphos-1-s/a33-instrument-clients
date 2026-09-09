@@ -128,7 +128,7 @@ public sealed class PersistenceTests
     [Fact] public async Task TwoIndependentProcessesCompleteFixedTwoSaveWorkflow()
     {
         using var files = new TempFiles(); var path = files.Path("journal.json"); var clock = new FakeClock();
-        var firstDevice = new FakePersistenceDevice(Active(3), Store(slot: 1, sequence: 7), 0);
+        var firstDevice = new FakePersistenceDevice(Active(3), Store(slot: 1, sequence: 19), 0);
         var first = await Service(firstDevice, clock).StartAsync(path, Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.WaitingForFirstReboot, first.Phase); Assert.Equal(1, firstDevice.SaveCalls); Assert.Equal(4, firstDevice.Active[22]);
         Assert.Contains(first.Events, item => item.Kind == PersistenceEventKind.SaveConfirmed);
@@ -471,8 +471,8 @@ public sealed class PersistenceTests
     [Fact] public async Task TransientConfigStoreMirrorMismatchUsesReadOnlyResampling()
     {
         using var files = new TempFiles(); var device = new FakePersistenceDevice(Active(3), Store(), 0);
-        var completed = Store(current: 11, saved: 11, slot: 2, sequence: 8);
-        device.PostSaveSnapshots.Enqueue(Store(state2: ConfigStoreState.Complete, dirty: true, current: 11, saved: 10));
+        var completed = Store(current: 20, saved: 20, slot: 2, sequence: 20);
+        device.PostSaveSnapshots.Enqueue(Store(state2: ConfigStoreState.Complete, dirty: true, current: 20, saved: 19));
         device.PostSaveSnapshots.Enqueue(completed); device.PostSaveSnapshots.Enqueue(completed);
         var journal = await Service(device).StartAsync(files.Path("j.json"), Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.WaitingForFirstReboot, journal.Phase); Assert.Equal(1, device.SaveCalls);
@@ -482,7 +482,7 @@ public sealed class PersistenceTests
     [Fact] public async Task PersistentConfigStoreMirrorMismatchBecomesUncertainWithoutWriteRetry()
     {
         using var files = new TempFiles(); var device = new FakePersistenceDevice(Active(3), Store(), 0);
-        var mismatch = Store(state2: ConfigStoreState.Complete, dirty: true, current: 11, saved: 10);
+        var mismatch = Store(state2: ConfigStoreState.Complete, dirty: true, current: 20, saved: 19);
         device.PostSaveSnapshots.Enqueue(mismatch); device.PostSaveSnapshots.Enqueue(mismatch); device.PostSaveSnapshots.Enqueue(mismatch);
         var journal = await Service(device).StartAsync(files.Path("j.json"), Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.ResultUncertain, journal.Phase); Assert.Equal(1, device.SaveCalls);
@@ -555,9 +555,9 @@ public sealed class PersistenceTests
     }
 
     private static ConfigStoreSnapshot Store(ConfigStoreState state1 = ConfigStoreState.Idle, ConfigStoreState state2 = ConfigStoreState.Idle,
-        bool dirty = false, uint current = 10, uint saved = 10, ushort slot = 1, uint sequence = 7) =>
+        bool dirty = false, uint current = 19, uint saved = 19, ushort slot = 1, uint sequence = 19) =>
         new((ushort)state1, (ushort)state2, state1, state2, dirty, current, saved, 2, slot, sequence);
-    private static FinalPersistenceExpectation Expectation()=>new(1,7,10,10,0,0,0,0);
+    private static FinalPersistenceExpectation Expectation()=>new(1,19,19,19,0,0,0,0);
 
     private static PersistenceJournal Journal()
     {
@@ -714,8 +714,8 @@ public sealed class PersistenceTests
                 Array.Copy(full, address % 0x40, values, 0, count);
             }
             else if (address == 0x004C && Failure == "mailbox") values[2] = 1;
-            else if (address == 0x0030) { values[0] = 0; values[2] = 0; values[3] = 0; values[4] = 10; values[5] = 0; values[6] = 10; }
-            else if (address == 0x01C0) { values[0] = 2; values[1] = 1; values[2] = 0; values[3] = 7; values[4] = Failure == "mirrors" ? (ushort)8 : (ushort)0; }
+            else if (address == 0x0030) { values[0] = 0; values[2] = 0; values[3] = 0; values[4] = 19; values[5] = 0; values[6] = 19; }
+            else if (address == 0x01C0) { values[0] = 2; values[1] = 1; values[2] = 0; values[3] = 19; values[4] = Failure == "mirrors" ? (ushort)8 : (ushort)0; }
             trace.Add(new(trace.Count + 1, at, at, 0, 3, address, count, "03", "03", values.Length, true, null, null, purpose, null));
             return Task.FromResult(values);
         }

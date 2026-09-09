@@ -59,6 +59,37 @@ public sealed class BaselineCaptureTests
         Assert.Equal(0, calls);
     }
 
+    [Fact]
+    public async Task LegacyFirmwareJournalIsRejectedBeforeMonitoringFactory()
+    {
+        using var temp = new CaptureTempDirectory();
+        var id = Guid.NewGuid().ToString();
+        var directory = PersistenceEvidenceDirectory.CreateUnique(temp.Root, id, DateTimeOffset.UtcNow);
+        var journal = new PersistenceJournal
+        {
+            WorkflowId = id,
+            BoundPreflightWorkflowId = Guid.NewGuid().ToString(),
+            ClientCommit = new string('1', 40),
+            Stm32Commit = "71a61249645bff6249286ac801d7f468786cfe85",
+            BaselineId = "a33-stage2b-prewrite-brightness3-20260906",
+            BaselineSha256 = new string('A', 64),
+            BaselineManifestSha256 = new string('B', 64),
+            PreflightSummarySha256 = new string('C', 64),
+            OriginalActiveConfiguration = new ushort[64],
+            ExpectedActiveConfiguration = new ushort[64],
+            Events = [], SaveTokens = [], PollSnapshots = [],
+            CycleAEvidence = new() { Cycle = PersistenceCycle.A, ExpectedActiveConfiguration = new ushort[64] }
+        };
+        await AtomicJsonFile.WriteAsync(Path.Combine(directory, "persistence-journal.json"), journal);
+        var calls = 0;
+        var args = new[] { "persistence-brightness-cycle", "--authorize-stage2b-persistence", "--confirmation",
+            "A33_STAGE2B_BRIGHTNESS_3_TO_4_TO_3_TWO_SAVES", "--acknowledge-manual-reboots",
+            "--acknowledge-result-uncertain-lockout", "--workflow-id", id };
+        await Assert.ThrowsAsync<InvalidDataException>(() => PersistenceHardwareRunner.RunAsync(args,
+            () => { calls++; return new InstrumentMonitoringService(); }, temp.Root));
+        Assert.Equal(0, calls);
+    }
+
     private static string[] Args(string root) => ["capture-persistence-baseline", "--confirmation", BaselineCaptureRunner.Confirmation, "--output-root", root];
 
     private sealed class CaptureSession : IStrictPreflightSession

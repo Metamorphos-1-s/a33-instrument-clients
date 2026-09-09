@@ -165,7 +165,9 @@ public static class PreflightEvidenceValidator
             mailbox.CommandState != mailbox.Raw[2] || mailbox.LastCommandId != mailbox.Raw[3])
             throw new InvalidDataException("Mailbox raw and parsed evidence disagree.");
         if (!store.StatesKnown || !store.StatesConsistent || store.State != ConfigStoreState.Idle || store.ConfigDirty ||
-            store.CurrentRevision != store.SavedRevision || store.ActiveSlot is not (1 or 2) || mailbox.Busy || mailbox.Pending)
+            store.CurrentRevision != store.SavedRevision || store.CurrentRevision != baseline.Manifest.CurrentRevision ||
+            store.ActiveSlot != baseline.Manifest.ActiveSlot || store.ActiveSequence != baseline.Manifest.ActiveSequence ||
+            mailbox.Busy || mailbox.Pending)
             throw new InvalidDataException("Preflight Mailbox or ConfigStore evidence is not a clean persistence baseline.");
         return new ValidatedPreflightBinding(workflowId, summaryPath,
             PersistenceBaselineContract.ComputeFileSha256(summaryPath), summary, store, mailbox, active);

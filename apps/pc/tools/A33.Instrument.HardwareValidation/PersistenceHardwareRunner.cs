@@ -18,7 +18,7 @@ public static class PersistenceHardwareRunner
         string? evidenceRootOverride, Func<DateTimeOffset> utcNow, IPersistenceClock workflowClock, FinalStabilityPolicy stabilityPolicy,TimeSpan readinessTimeout,Action<string>? beforeWaitingValidation)
     {
         var repositoryRoot = RepositoryRoot.Find();
-        var evidenceRoot = evidenceRootOverride ?? Path.Combine(repositoryRoot, "Results", "pc_stage2b_hw");
+        var evidenceRoot = evidenceRootOverride ?? Path.Combine(repositoryRoot, "Results", "pc_stage2b_050b_hw");
         var baseline = PersistenceBaselineContract.LoadFromRepository(repositoryRoot);
         var assembly = typeof(PersistenceHardwareRunner).Assembly;
         var clientCommit = ToolBuildIdentity.GetCommit(assembly);
