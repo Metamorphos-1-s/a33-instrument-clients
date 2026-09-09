@@ -4,7 +4,7 @@ $ble = Get-Content (Join-Path $root 'contracts/ble-v1/constants.json') -Raw | Co
 $goldenBle = Get-Content (Join-Path $root 'contracts/ble-v1/golden-frames.json') -Raw | ConvertFrom-Json
 $goldenModbus = Get-Content (Join-Path $root 'contracts/modbus-v0104/golden-frames.json') -Raw | ConvertFrom-Json
 $map = Get-Content (Join-Path $root 'contracts/modbus-v0104/register-map.json') -Raw | ConvertFrom-Json
-if ($ble.firmwareVersion -ne '0x050A' -or $ble.schemaVersion -ne 2 -or $ble.registerMap -ne '0x0104') { throw 'BLE compatibility constants mismatch' }
+if ($ble.firmwareVersion -ne '0x050B' -or $ble.schemaVersion -ne 2 -or $ble.registerMap -ne '0x0104') { throw 'BLE compatibility constants mismatch' }
 if ($ble.version -ne 1 -or $ble.messageTypes.FAST_WEIGHT -ne 1 -or $ble.messageTypes.SLOW_STATUS -ne 2 -or $ble.messageTypes.CHECKWEIGH_STATUS -ne 3) { throw 'BLE message constants mismatch' }
 $telemetryDomain = @($ble.sequenceDomains.telemetry)
 if (($telemetryDomain -join ',') -ne '1,2,3' -or $ble.sequenceDomains.commandRequest[0] -ne 128 -or $ble.sequenceDomains.commandResponse[0] -ne 129) { throw 'BLE sequence-domain contract mismatch' }

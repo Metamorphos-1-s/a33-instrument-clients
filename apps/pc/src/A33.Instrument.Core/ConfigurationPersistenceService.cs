@@ -56,7 +56,7 @@ public sealed class ConfigurationPersistenceService(
     public const ushort OriginalBrightness = 3;
     public const ushort TestBrightness = 4;
     public const int BrightnessOffset = 0x0116 - 0x0100;
-    public const string FixedStm32Commit = "71a61249645bff6249286ac801d7f468786cfe85";
+    public const string FixedStm32Commit = Stage2BDeviceContract.Stm32ProductionCommit;
 
     private readonly IPersistenceClock clock = clock ?? new SystemPersistenceClock();
     private readonly PersistencePollingPolicy polling = pollingPolicy ?? PersistencePollingPolicy.Default;
@@ -124,7 +124,7 @@ public sealed class ConfigurationPersistenceService(
             : CurrentCycleEvidence(journal);
         var expectedConfirmed = cycleEvidence.SaveConfirmed;
         var expectedActive = cycleEvidence.ExpectedActiveConfiguration;
-        var rebootValid = identity is { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 } &&
+        var rebootValid = Stage2BDeviceContract.Matches(identity) &&
             mailbox.ResponseToken == 0 && !mailbox.Busy && !mailbox.Pending &&
             store.StatesKnown && store.StatesConsistent && store.State == ConfigStoreState.Idle &&
             !store.ConfigDirty && store.CurrentRevision == store.SavedRevision && expectedConfirmed is not null &&
@@ -438,7 +438,7 @@ public sealed class ConfigurationPersistenceService(
 
     private static void ValidateIdentity(DeviceIdentity identity)
     {
-        if (identity is not { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 })
+        if (!Stage2BDeviceContract.Matches(identity))
             throw new InvalidOperationException("Device identity does not match the fixed Stage 2B persistence contract.");
     }
 
@@ -446,7 +446,7 @@ public sealed class ConfigurationPersistenceService(
     {
         PersistenceBaselineContract.Validate(safetyContext.Baseline.Manifest);
         var boundStore = safetyContext.Preflight.ConfigStore;
-        var valid = identity is { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 } &&
+        var valid = Stage2BDeviceContract.Matches(identity) &&
             !mailbox.Busy && !mailbox.Pending && store.SchemaVersion == 2 && store.StatesKnown && store.StatesConsistent &&
             store.State == ConfigStoreState.Idle && !store.ConfigDirty && store.CurrentRevision == store.SavedRevision &&
             store.ActiveSlot is 1 or 2 && store.ActiveSlot == boundStore.ActiveSlot &&

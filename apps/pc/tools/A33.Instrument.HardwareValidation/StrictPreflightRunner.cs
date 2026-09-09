@@ -86,7 +86,7 @@ public static class StrictPreflightRunner
         return fallback;
     }
 
-    private sealed class TcpPreflightRegisterAccess(
+    internal sealed class TcpPreflightRegisterAccess(
         string host, int port, byte unitId, TimeSpan timeout, IPersistenceClock clock) : IStrictPreflightSession
     {
         private readonly ModbusTcpTransport transport = new(host, port);

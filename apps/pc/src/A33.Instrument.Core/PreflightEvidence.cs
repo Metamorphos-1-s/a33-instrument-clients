@@ -116,7 +116,7 @@ public static class PreflightEvidenceValidator
             summary.BaselineId != baseline.Manifest.BaselineId || summary.BaselineSha256 != baseline.Manifest.ActiveArraySha256 ||
             summary.BaselineManifestSha256 != baseline.ManifestSha256 || summary.Endpoint != "192.168.1.100:502" || summary.UnitId != 1)
             throw new InvalidDataException("Preflight evidence identity or baseline binding mismatch.");
-        if (summary.Identity is not { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 })
+        if (!Stage2BDeviceContract.Matches(summary.Identity))
             throw new InvalidDataException("Preflight device identity does not match the fixed contract.");
         if (string.IsNullOrWhiteSpace(currentToolVersion) || currentToolVersion == "unknown" ||
             currentToolSha256.Length != 64 || currentToolSha256.Any(x => !Uri.IsHexDigit(x)) ||

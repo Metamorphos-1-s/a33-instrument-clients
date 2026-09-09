@@ -5,9 +5,10 @@ var command = args.FirstOrDefault(a => !a.StartsWith("--"))?.ToLowerInvariant() 
 if (command == "apply-restore-test") return await A33.Instrument.HardwareValidation.ApplyRestoreRunner.RunAsync(args);
 if (command == "recovery-cancel") return await A33.Instrument.HardwareValidation.RecoveryCancelRunner.RunAsync(args);
 if (command == "preflight") return await A33.Instrument.HardwareValidation.StrictPreflightRunner.RunAsync(args);
+if (command == "capture-persistence-baseline") return await A33.Instrument.HardwareValidation.BaselineCaptureRunner.RunAsync(args);
 if (command == "persistence-brightness-cycle") return await A33.Instrument.HardwareValidation.PersistenceHardwareRunner.RunAsync(args);
 var options = Parse(args);
-if (command is "help" or "--help") { Console.WriteLine("preflight | cancel-test | apply-restore-test | save-test (not authorized) | persistence-brightness-cycle (explicit authorization required)"); return 0; }
+if (command is "help" or "--help") { Console.WriteLine("preflight | capture-persistence-baseline (read-only confirmation required) | cancel-test | apply-restore-test | save-test (not authorized) | persistence-brightness-cycle (explicit authorization required)"); return 0; }
 if (command == "save-test") { Console.Error.WriteLine("SAVE_NOT_AUTHORIZED"); return 12; }
 if (!A33.Instrument.HardwareValidation.HardwareValidationCommandPolicy.UsesLegacyAuthorizedCancelPath(command)) { Console.Error.WriteLine("UNKNOWN_OR_UNAVAILABLE_COMMAND"); return 2; }
 var output = Get("output", "");

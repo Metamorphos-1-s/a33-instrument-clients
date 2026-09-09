@@ -75,7 +75,7 @@ public static class PersistenceBaselineContract
     public static void Validate(PersistenceBaselineManifest manifest)
     {
         if (manifest.SchemaVersion != 1 || manifest.BaselineId != BaselineId ||
-            manifest.Stm32Commit != ConfigurationPersistenceService.FixedStm32Commit ||
+            manifest.Stm32Commit != "71a61249645bff6249286ac801d7f468786cfe85" ||
             manifest is not { FirmwareVersion: 0x050A, DeviceSchema: 2, RegisterMap: 0x0104, UnitId: 1,
                 TcpEndpoint: "192.168.1.100:502", ActiveStartAddress: 0x0100, RegisterCount: 64,
                 BrightnessAddress: 0x0116, OriginalBrightness: 3, ProvenBeforeFirstStage2BWrite: true })

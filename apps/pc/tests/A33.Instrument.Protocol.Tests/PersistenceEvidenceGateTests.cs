@@ -418,7 +418,7 @@ public sealed class PersistenceEvidenceGateTests
         var baseline=Baseline();var active3=baseline.Manifest.ActiveRegisters.ToArray();var active4=active3.ToArray();active4[ConfigurationPersistenceService.BrightnessOffset]=4;
         var storeA0=Store() with{ConfigDirty=true,CurrentRevision=11,SavedRevision=10};var storeA1=Store() with{ActiveSlot=2,ActiveSequence=8,CurrentRevision=11,SavedRevision=11};
         var storeB0=storeA1 with{ConfigDirty=true,CurrentRevision=12,SavedRevision=11};var storeB1=storeA1 with{ActiveSlot=1,ActiveSequence=9,CurrentRevision=12,SavedRevision=12};
-        var mailbox=new MailboxSnapshot(0,0,0,0,new ushort[12]);var identity=new DeviceIdentity(0x050A,2,0x0104,1);var at=preflight.Now.AddMinutes(2);
+        var mailbox=new MailboxSnapshot(0,0,0,0,new ushort[12]);var identity=new DeviceIdentity(0x050B,2,0x0104,1);var at=preflight.Now.AddMinutes(2);
         var rebootA=new PersistenceRebootEvidence(at,identity,mailbox,storeA1,active4,PersistenceBaselineContract.ComputeActiveSha256(active4));
         var rebootB=new PersistenceRebootEvidence(at.AddMinutes(1),identity,mailbox,storeB1,active3,baseline.Manifest.ActiveArraySha256);
         var cycleA=new PersistenceCycleEvidence{Cycle=PersistenceCycle.A,ExpectedActiveConfiguration=active4,ActiveBeforeApply=active3,ActiveAfterApply=active4,SaveBefore=storeA0,SaveConfirmed=storeA1,MailboxTokens=[1,2,3,4],SaveToken=4,SaveReservedAtUtc=at.AddSeconds(-2),SaveRequestMayHaveBeenSent=true,RebootEvidence=rebootA};
@@ -454,7 +454,7 @@ public sealed class PersistenceEvidenceGateTests
     {
         var baseline = Baseline(); var active = baseline.Manifest.ActiveRegisters.ToArray(); var now = DateTimeOffset.Parse("2026-09-07T00:00:00Z");
         var requests = PreflightRequestStatistics.FromTrace(Trace()); var errors = new PreflightErrorCounters(0, 0, 0, 0, 0, 0, 0, 0);
-        return new StrictPreflightReport(true, [], new(0x050A, 2, 0x0104, 1),
+        return new StrictPreflightReport(true, [], new(0x050B, 2, 0x0104, 1),
             new(now, now, 0, now, now, 0, 1, 2), new ushort[34], active, active.ToArray(), active.ToArray(),
             baseline.Manifest.ActiveArraySha256, baseline.Manifest.ActiveArraySha256, [], new(0, 0, 0, 0, new ushort[12]),
             new ConfigStorePreflightEvidence(A33.Instrument.Protocol.WordOrder.HighWordFirst,[0,1,0,0,10,0,10],[2,1,0,7,0],Store()), baseline.Manifest.BaselineId, baseline.Manifest.ActiveArraySha256, baseline.ManifestSha256,
@@ -555,14 +555,14 @@ public sealed class PersistenceEvidenceGateTests
         {
             ushort[] source=address switch
             {
-                0=>Realtime(),14=>[0x0104,0x050A],0x0030=>Diagnostics(),0x004C=>Mailbox(),
+                0=>Realtime(),14=>[0x0104,0x050B],0x0030=>Diagnostics(),0x004C=>Mailbox(),
                 >=0x0100 and <=0x013F=>Active.Skip(address-0x0100).Take(count).ToArray(),
                 >=0x0140 and <=0x017F=>staging.Skip(address-0x0140).Take(count).ToArray(),
                 0x01C0=>Storage(),_=>new ushort[count]
             };
             return source.Take(count).Concat(Enumerable.Repeat((ushort)0,Math.Max(0,count-source.Length))).ToArray();
         }
-        private ushort[] Realtime(){var values=new ushort[34];values[14]=0x0104;values[15]=0x050A;values[32]=0;values[33]=1;return values;}
+        private ushort[] Realtime(){var values=new ushort[34];values[14]=0x0104;values[15]=0x050B;values[32]=0;values[33]=1;return values;}
         private ushort[] Diagnostics()=>[0,0,dirty?(ushort)1:(ushort)0,(ushort)(currentRevision>>16),(ushort)currentRevision,(ushort)(savedRevision>>16),(ushort)savedRevision];
         private ushort[] Storage()=>[2,activeSlot,(ushort)(activeSequence>>16),(ushort)activeSequence,0];
         private ushort[] Mailbox()=>[responseToken,lastCommand==13?(ushort)1:(ushort)0,0,lastCommand,0,0,0,0,0,0,0,0];

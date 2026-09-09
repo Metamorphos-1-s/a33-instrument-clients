@@ -1,5 +1,12 @@
 # PC Client Stage 2B Configuration Transactions
 
+Firmware `0x050B` rebaseline work uses the centralized `Stage2BDeviceContract`
+and a separate `Results/pc_stage2b_050b_baseline` capture root. The legacy
+Firmware `0x050A` Results remain historical and are not valid input for a new
+workflow. `capture-persistence-baseline` is a fixed TCP/Unit-ID, FC03-only
+bootstrap command and requires explicit read-only confirmation before transport
+creation. Formal Stage 2B persistence writes are not part of baseline capture.
+
 ## Current status
 
 ```text

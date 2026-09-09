@@ -99,7 +99,7 @@ public sealed class StrictPreflightService(
         var requests = PreflightRequestStatistics.FromTrace(registers.Trace);
         var gates = new Dictionary<string, bool>
         {
-            ["identity"] = identity is { FirmwareVersion: 0x050A, SchemaVersion: 2, MapVersion: 0x0104, UnitId: 1 },
+            ["identity"] = Stage2BDeviceContract.Matches(identity),
             ["fresh_sample_sequence"] = timing.FinalSampleSequence != timing.InitialSampleSequence,
             ["active_complete"] = active1.Length == 64 && active2.Length == 64,
             ["active_stable"] = active1.SequenceEqual(active2),

@@ -155,7 +155,7 @@ public sealed class StrictMonitoringTests
         {
             var baseline=Baseline();ushort[] source=address switch
             {
-                0=>Realtime(),14=>[0x0104,0x050A],259=>[0],
+                0=>Realtime(),14=>[0x0104,0x050B],259=>[0],
                 >=0x0100 and <=0x013F=>baseline.Skip(address-0x0100).Take(count).ToArray(),
                 _=>new ushort[count]
             };
