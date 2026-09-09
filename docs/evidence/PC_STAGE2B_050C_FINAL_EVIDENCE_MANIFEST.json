@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "review_scope": "Offline independent review of Firmware 0x050C Stage 2B TCP persistence evidence",
+  "generated_at_utc": "2026-09-09T17:04:52.8473800Z",
+  "manifest_excludes_itself": true,
+  "preflight_workflow_id": "4797b910-44db-4811-9fc6-8c96be9a7720",
+  "persistence_workflow_id": "07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f",
+  "preflight_root": "Results/pc_stage2b_050c_hw",
+  "baseline_id": "a33-stage2b-fw050c-brightness3-20260909",
+  "baseline_manifest_path": "Results/pc_stage2b_050c_baseline/persistence_baseline_manifest.json",
+  "baseline_manifest_sha256": "CE1D5FDAD5B752CFFCD1107891DB9CCB04A252668B409DC8729B3B361F0EA189",
+  "hardware_tool_commit": "5bf8f3c878be626a14f5658256bc34234221ad36",
+  "hardware_tool_version": "1.0.0.0",
+  "hardware_tool_sha256": "539A38FE45A7FA84DEFD067370B29869F47F33E9F40ED82509907892A647CC8F",
+  "stm32_production": "2af4abe39ddb3336d91be64fe8c75425c0dbc1aa",
+  "stm32_evidence": "de181c0b3feea020b224915b070dbb2cf5b6219f",
+  "stm32_elf_sha256": "895999B7547935827FC64DFF70EE5F4DF7B00E1FD413706E1BFDBEFAD5925E44",
+  "cycle_a": {
+    "phase": "WaitingForFirstReboot",
+    "fc03": "74/74/0",
+    "fc16": "5/5/0",
+    "staging": "0x0156=4",
+    "mailbox_commands": "BEGIN,VALIDATE,APPLY,SAVE",
+    "save_token": 4,
+    "save_count": 1
+  },
+  "cycle_b": {
+    "phase": "WaitingForSecondReboot",
+    "fc03": "73/73/0",
+    "fc16": "5/5/0",
+    "staging": "0x0156=3",
+    "mailbox_commands": "BEGIN,VALIDATE,APPLY,SAVE",
+    "save_token": 5,
+    "save_count": 1
+  },
+  "final": {
+    "phase": "COMPLETE_STABILITY_PASS",
+    "fc03": "8682/8682",
+    "fc16": 0,
+    "save": 0,
+    "duration_seconds": 601.104088,
+    "samples": 474,
+    "maximum_gap_ms": 2000,
+    "connection_generation": "1->1",
+    "active_64_of_64": true
+  },
+  "totals": {
+    "preflight_fc03": 26,
+    "cycle_a_fc03": 74,
+    "cycle_b_fc03": 73,
+    "final_fc03": 8682,
+    "fc03_total": 8855,
+    "fc16_total": 10,
+    "fc06_total": 0,
+    "saves": 2,
+    "save_retries": 0,
+    "physical_power_cycles": 2,
+    "formal_persistence_sessions": 3,
+    "tcp_sessions_including_preflight": 4,
+    "complete_replay_new_tcp": 0
+  },
+  "persistence_workflow_tree": {
+    "file_count": 11,
+    "total_bytes": 5282570,
+    "stable_sha256": "4F7126D1768209A41D8EBD57C33ED1F01EA6FFF7610BAFDA71B55792A99DD07C"
+  },
+  "preflight_workflow_tree": {
+    "file_count": 8,
+    "total_bytes": 20218,
+    "stable_sha256": "6B6081095A8084DC96CE484970012690CFD147BC049A046C32D243571128FFFB"
+  },
+  "raw_files": [
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/active-snapshot-1.json",
+      "file_name": "active-snapshot-1.json",
+      "length": 422,
+      "sha256": "967ACFAE376455BEF7769EC38937A51435D9AB1A5DFEC7B3ADB36814EAEC5F75",
+      "last_write_utc": "2026-09-09T15:00:37.6030585Z",
+      "tracked": false
+    },
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/active-snapshot-2.json",
+      "file_name": "active-snapshot-2.json",
+      "length": 422,
+      "sha256": "967ACFAE376455BEF7769EC38937A51435D9AB1A5DFEC7B3ADB36814EAEC5F75",
+      "last_write_utc": "2026-09-09T15:00:37.6115851Z",
+      "tracked": false
+    },
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/config-store-snapshot.json",
+      "file_name": "config-store-snapshot.json",
+      "length": 524,
+      "sha256": "DC72D0401F22337ED026FC12C44FF5EB0855F686581D07A6A1C9111ED3F0B320",
+      "last_write_utc": "2026-09-09T15:00:37.6480848Z",
+      "tracked": false
+    },
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/environment.json",
+      "file_name": "environment.json",
+      "length": 547,
+      "sha256": "8458E5CC2B791B9B08A3994A63AED71795B992021BD363FA527CF676CBB7C7B7",
+      "last_write_utc": "2026-09-09T15:00:37.6606082Z",
+      "tracked": false
+    },
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/mailbox-snapshot.json",
+      "file_name": "mailbox-snapshot.json",
+      "length": 243,
+      "sha256": "53463384851B6FEAC1C2B42F2BB38BCA45B781904BD3A56FF8CFF63E0F48BCA5",
+      "last_write_utc": "2026-09-09T15:00:37.6271157Z",
+      "tracked": false
+    },
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/preflight-summary.json",
+      "file_name": "preflight-summary.json",
+      "length": 2878,
+      "sha256": "04349D446AAC50D22D36A727AE6CA330782679FB5327BC70F65EF080B44BC730",
+      "last_write_utc": "2026-09-09T15:00:37.6766693Z",
+      "tracked": false
+    },
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/request-trace.json",
+      "file_name": "request-trace.json",
+      "length": 14484,
+      "sha256": "14919D716B4A8AC531655ED5B0657BAE9EB95F37AC4556D5787BE4A920574B15",
+      "last_write_utc": "2026-09-09T15:00:37.5864376Z",
+      "tracked": false
+    },
+    {
+      "workflow": "preflight",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150036803Z_4797b910-44db-4811-9fc6-8c96be9a7720/staging-snapshot.json",
+      "file_name": "staging-snapshot.json",
+      "length": 698,
+      "sha256": "0B243E68D05215E471459A1DFC149013FD05C3D6A16235B944CA906C60EB2DF9",
+      "last_write_utc": "2026-09-09T15:00:37.6190860Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/final-stability.json",
+      "file_name": "final-stability.json",
+      "length": 886313,
+      "sha256": "C2D95BC914E413195F9B009697B13F6044CF3E9ECF7FF8B21927C4F04233CED5",
+      "last_write_utc": "2026-09-09T15:15:46.5840365Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-journal.json",
+      "file_name": "persistence-journal.json",
+      "length": 19968,
+      "sha256": "39C5FE0DCEFD85DA05DA794DDFBF48A6908DCD814F51AACD931A10F6D47AD2B8",
+      "last_write_utc": "2026-09-09T15:05:45.4478585Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-39f5a5d2-e671-46e8-bb44-9d255fe54f58-environment.json",
+      "file_name": "persistence-session-39f5a5d2-e671-46e8-bb44-9d255fe54f58-environment.json",
+      "length": 546,
+      "sha256": "511EBE4592E49DC08F31B03FD7B8EA8DBCBE5C1E5E169E7044D022CF807EEEE3",
+      "last_write_utc": "2026-09-09T15:03:34.1718772Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-39f5a5d2-e671-46e8-bb44-9d255fe54f58-request-trace.json",
+      "file_name": "persistence-session-39f5a5d2-e671-46e8-bb44-9d255fe54f58-request-trace.json",
+      "length": 37323,
+      "sha256": "BD7CBF35DEC3FFF0F5C4F98DD6E594FD97BE6DFE693407E34F7241C4B2182D53",
+      "last_write_utc": "2026-09-09T15:03:34.1668761Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-39f5a5d2-e671-46e8-bb44-9d255fe54f58-summary.json",
+      "file_name": "persistence-session-39f5a5d2-e671-46e8-bb44-9d255fe54f58-summary.json",
+      "length": 2096,
+      "sha256": "EB3268991ACA449AE82534586CDD88702FD870491E2CABB0EB764F67AB89B103",
+      "last_write_utc": "2026-09-09T15:03:34.1844306Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-70cbbc96-1cfc-4817-bf58-6e91e832027b-environment.json",
+      "file_name": "persistence-session-70cbbc96-1cfc-4817-bf58-6e91e832027b-environment.json",
+      "length": 547,
+      "sha256": "8F9EEE4128DB4F5C088B2B08968BB135B821B1B68270DEB5AF33F072B459A5E4",
+      "last_write_utc": "2026-09-09T15:01:22.7492449Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-70cbbc96-1cfc-4817-bf58-6e91e832027b-request-trace.json",
+      "file_name": "persistence-session-70cbbc96-1cfc-4817-bf58-6e91e832027b-request-trace.json",
+      "length": 37869,
+      "sha256": "56360E45196D7FCFEC58F83D4AF200EB32A94E7CE1663534FF15910FAE9DA7EC",
+      "last_write_utc": "2026-09-09T15:01:22.7426181Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-70cbbc96-1cfc-4817-bf58-6e91e832027b-summary.json",
+      "file_name": "persistence-session-70cbbc96-1cfc-4817-bf58-6e91e832027b-summary.json",
+      "length": 2096,
+      "sha256": "1906A09232A6103B0F7686CB356068136A8E021010A4E1E5DF6054ED7EAA70CC",
+      "last_write_utc": "2026-09-09T15:01:22.7655570Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-b2bc4a59-2b51-4c63-a50f-d82aaa14d61d-environment.json",
+      "file_name": "persistence-session-b2bc4a59-2b51-4c63-a50f-d82aaa14d61d-environment.json",
+      "length": 547,
+      "sha256": "E3EA5EC33B6159E5D63479E37472E41C4E0C2DA4701E7999FDC8630E03C84BD4",
+      "last_write_utc": "2026-09-09T15:15:46.6575476Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-b2bc4a59-2b51-4c63-a50f-d82aaa14d61d-request-trace.json",
+      "file_name": "persistence-session-b2bc4a59-2b51-4c63-a50f-d82aaa14d61d-request-trace.json",
+      "length": 4293077,
+      "sha256": "44E0A10A1C132F935615C250436CD039560B00581958DEE63C3BD0E67D1FB147",
+      "last_write_utc": "2026-09-09T15:15:46.6525460Z",
+      "tracked": false
+    },
+    {
+      "workflow": "persistence",
+      "relative_path": "Results/pc_stage2b_050c_hw/20260909T150119186Z_07ccb9db-8d8b-4083-bd22-c0e9a0ee6d6f/persistence-session-b2bc4a59-2b51-4c63-a50f-d82aaa14d61d-summary.json",
+      "file_name": "persistence-session-b2bc4a59-2b51-4c63-a50f-d82aaa14d61d-summary.json",
+      "length": 2188,
+      "sha256": "45AF1B9EE957315C7A7EB106BDBB6F84651437A603D6B212958BA6E39183877E",
+      "last_write_utc": "2026-09-09T15:15:46.6710493Z",
+      "tracked": false
+    }
+  ],
+  "historical_results_unchanged": true,
+  "review_result": "PASS",
+  "real_hardware_operations_during_review": 0,
+  "unverified_scope": [
+    "real keypad menu SAVE",
+    "BLE persistence",
+    "RS232/RS485 persistence",
+    "general WPF Flash save",
+    "other configuration persistence",
+    "factory reset",
+    "calibration",
+    "Stage 2C"
+  ]
+}

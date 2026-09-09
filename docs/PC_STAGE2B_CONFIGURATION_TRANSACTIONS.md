@@ -28,6 +28,20 @@ commit `b853dc5aa75628a3c2ff32cab003a0b15c7ecd0a`. Its PC JSON Active hash is
 `4BA7DA26...4DD98`. The preconditioning SAVE and physical power cycle were
 1/1; formal Stage 2B SAVE and reboot counts remain zero.
 
+## Final 0x050C qualification and independent review
+
+The fixed TCP qualification subsequently completed on Firmware `0x050C` with
+Cycle A `3 -> 4`, Cycle B `4 -> 3`, exactly two SAVE requests (tokens 4 and 5),
+two physical power cycles, final 600-second read-only stability PASS, and a
+zero-connection Complete replay. The independent offline review corrected the
+earlier reversed per-cycle FC03 expectation: raw evidence and summaries agree
+on Cycle A `74/74` and Cycle B `73/73`; FC03 quantity is asynchronous and is
+not a fixed per-cycle contract. See
+`docs/PC_STAGE2B_050C_FINAL_HARDWARE_REVIEW.md` and
+`docs/evidence/PC_STAGE2B_050C_FINAL_EVIDENCE_MANIFEST.json` for the complete
+file-level audit. Keypad menu SAVE and other non-TCP persistence scopes remain
+unverified.
+
 ## Current status
 
 ```text

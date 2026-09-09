@@ -11,6 +11,14 @@ Stage 2B now targets the independent Firmware 0x050C baseline under
 The brightness-3 precondition is complete, but the formal two-SAVE/two-reboot
 Stage 2B persistence qualification has not started.
 
+Firmware 0x050C fixed TCP persistence qualification is now complete: brightness
+`3 -> 4 -> 3` persisted with two SAVE operations and two operator-confirmed
+physical power cycles, followed by a 600-second read-only stability PASS and a
+zero-connection Complete replay. Independent evidence review is archived in
+`docs/PC_STAGE2B_050C_FINAL_HARDWARE_REVIEW.md`. This does not qualify keypad
+menu SAVE, BLE/RS232/RS485 persistence, general WPF Flash save, other
+configuration persistence, factory reset, calibration, or Stage 2C.
+
 The 0x050C freeze review found and fixed a Persistence Runner omission: its
 default persistence evidence root had remained hard-coded to the historical
 `pc_stage2b_050b_hw` directory. The Runner now obtains the sole production root
