@@ -4,7 +4,13 @@ $ble = Get-Content (Join-Path $root 'contracts/ble-v1/constants.json') -Raw | Co
 $goldenBle = Get-Content (Join-Path $root 'contracts/ble-v1/golden-frames.json') -Raw | ConvertFrom-Json
 $goldenModbus = Get-Content (Join-Path $root 'contracts/modbus-v0104/golden-frames.json') -Raw | ConvertFrom-Json
 $map = Get-Content (Join-Path $root 'contracts/modbus-v0104/register-map.json') -Raw | ConvertFrom-Json
-if ($ble.firmwareVersion -ne '0x050C' -or $ble.schemaVersion -ne 2 -or $ble.registerMap -ne '0x0104') { throw 'BLE compatibility constants mismatch' }
+if ($ble.firmwareVersion -ne '0x050F' -or $ble.schemaVersion -ne 2 -or $ble.registerMap -ne '0x0104' -or
+    $ble.firmwareProductionCommit -ne 'b119703cee70b228aa240e7f3477c7dca9946841' -or
+    $ble.firmwareEvidenceCommit -ne '5236da68341e8feed0c6f6aedbc5ee52cea91f3b' -or
+    $ble.firmwareReleaseElfSha256 -ne '15C8269A80962E2CA7329A2623AB69F2286C2E3336373D0B658E2755E2B8DE8D') { throw 'BLE compatibility constants mismatch' }
+if ($ble.compatibility.monitoringFirmwarePolicy -ne 'protocol-contract' -or
+    $ble.compatibility.strictPersistenceFirmware -ne '0x050F' -or
+    $ble.compatibility.requiredMonitoringCapabilities -ne '0x000003FF') { throw 'BLE compatibility policy mismatch' }
 if ($ble.version -ne 1 -or $ble.messageTypes.FAST_WEIGHT -ne 1 -or $ble.messageTypes.SLOW_STATUS -ne 2 -or $ble.messageTypes.CHECKWEIGH_STATUS -ne 3) { throw 'BLE message constants mismatch' }
 $telemetryDomain = @($ble.sequenceDomains.telemetry)
 if (($telemetryDomain -join ',') -ne '1,2,3' -or $ble.sequenceDomains.commandRequest[0] -ne 128 -or $ble.sequenceDomains.commandResponse[0] -ne 129) { throw 'BLE sequence-domain contract mismatch' }
@@ -25,13 +31,27 @@ foreach($entry in $required.GetEnumerator()){
     throw "ConfigStore contract mismatch: $($entry.Key)"
   }
 }
-$baselinePath = Join-Path $root 'Results/pc_stage2b_050c_baseline/persistence_baseline_manifest.json'
+$runtimeContract = Get-Content (Join-Path $root 'apps/wechat-mini/miniprogram/core/protocol/device-contract.ts') -Raw
+foreach ($requiredSource in @('productFirmwareVersion: 0x050f', 'schemaVersion: 2',
+    'registerMapVersion: 0x0104', 'requiredMonitoringCapabilities: 0x000003ff')) {
+  if (-not $runtimeContract.Contains($requiredSource)) { throw "WeChat runtime contract mismatch: $requiredSource" }
+}
+$pcContract = Get-Content (Join-Path $root 'apps/pc/src/A33.Instrument.Core/Stage2BDeviceContract.cs') -Raw
+foreach ($requiredSource in @('FirmwareVersion = 0x050F',
+    'BaselineRoot = "Results/pc_stage2b_050f_baseline"',
+    'PersistenceEvidenceRoot = "Results/pc_stage2b_050f_hw"')) {
+  if (-not $pcContract.Contains($requiredSource)) { throw "PC strict contract mismatch: $requiredSource" }
+}
+$baselinePath = Join-Path $root 'Results/pc_stage2b_050f_baseline/persistence_baseline_manifest.json'
 $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
-if ($baseline.schema_version -ne 2 -or $baseline.baseline_id -ne 'a33-stage2b-fw050c-brightness3-20260909' -or
-    $baseline.firmware_version -ne 0x050C -or $baseline.register_map -ne 0x0104 -or $baseline.device_schema -ne 2 -or
+if ($baseline.schema_version -ne 2 -or $baseline.baseline_id -ne 'a33-stage2b-fw050f-brightness3-20260911' -or
+    $baseline.firmware_version -ne 0x050F -or $baseline.register_map -ne 0x0104 -or $baseline.device_schema -ne 2 -or
     $baseline.register_count -ne 64 -or $baseline.active_registers.Count -ne 64 -or
-    $baseline.original_brightness -ne 3 -or $baseline.active_slot -ne 1 -or $baseline.active_sequence -ne 19 -or
-    $baseline.current_revision -ne 19 -or $baseline.saved_revision -ne 19 -or -not $baseline.proven_before_first_stage2b_write) {
+    $baseline.original_brightness -ne 3 -or $baseline.active_slot -ne 1 -or $baseline.active_sequence -ne 25 -or
+    $baseline.current_revision -ne 25 -or $baseline.saved_revision -ne 25 -or -not $baseline.proven_before_first_stage2b_write -or
+    $baseline.stm32_production_commit -ne $ble.firmwareProductionCommit -or
+    $baseline.stm32_evidence_commit -ne $ble.firmwareEvidenceCommit -or
+    $baseline.stm32_release_elf_sha256 -ne $ble.firmwareReleaseElfSha256) {
   throw 'persistence baseline provenance or shape mismatch'
 }
 $canonical = ConvertTo-Json @($baseline.active_registers) -Compress

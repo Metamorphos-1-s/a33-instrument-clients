@@ -128,7 +128,7 @@ public sealed class PersistenceTests
     [Fact] public async Task TwoIndependentProcessesCompleteFixedTwoSaveWorkflow()
     {
         using var files = new TempFiles(); var path = files.Path("journal.json"); var clock = new FakeClock();
-        var firstDevice = new FakePersistenceDevice(Active(3), Store(slot: 1, sequence: 19), 0);
+        var firstDevice = new FakePersistenceDevice(Active(3), Store(slot: 1, sequence: 25), 0);
         var first = await Service(firstDevice, clock).StartAsync(path, Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.WaitingForFirstReboot, first.Phase); Assert.Equal(1, firstDevice.SaveCalls); Assert.Equal(4, firstDevice.Active[22]);
         Assert.Contains(first.Events, item => item.Kind == PersistenceEventKind.SaveConfirmed);
@@ -471,8 +471,8 @@ public sealed class PersistenceTests
     [Fact] public async Task TransientConfigStoreMirrorMismatchUsesReadOnlyResampling()
     {
         using var files = new TempFiles(); var device = new FakePersistenceDevice(Active(3), Store(), 0);
-        var completed = Store(current: 20, saved: 20, slot: 2, sequence: 20);
-        device.PostSaveSnapshots.Enqueue(Store(state2: ConfigStoreState.Complete, dirty: true, current: 20, saved: 19));
+        var completed = Store(current: 26, saved: 26, slot: 2, sequence: 26);
+        device.PostSaveSnapshots.Enqueue(Store(state2: ConfigStoreState.Complete, dirty: true, current: 26, saved: 25));
         device.PostSaveSnapshots.Enqueue(completed); device.PostSaveSnapshots.Enqueue(completed);
         var journal = await Service(device).StartAsync(files.Path("j.json"), Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.WaitingForFirstReboot, journal.Phase); Assert.Equal(1, device.SaveCalls);
@@ -482,7 +482,7 @@ public sealed class PersistenceTests
     [Fact] public async Task PersistentConfigStoreMirrorMismatchBecomesUncertainWithoutWriteRetry()
     {
         using var files = new TempFiles(); var device = new FakePersistenceDevice(Active(3), Store(), 0);
-        var mismatch = Store(state2: ConfigStoreState.Complete, dirty: true, current: 20, saved: 19);
+        var mismatch = Store(state2: ConfigStoreState.Complete, dirty: true, current: 26, saved: 25);
         device.PostSaveSnapshots.Enqueue(mismatch); device.PostSaveSnapshots.Enqueue(mismatch); device.PostSaveSnapshots.Enqueue(mismatch);
         var journal = await Service(device).StartAsync(files.Path("j.json"), Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.ResultUncertain, journal.Phase); Assert.Equal(1, device.SaveCalls);
@@ -555,9 +555,9 @@ public sealed class PersistenceTests
     }
 
     private static ConfigStoreSnapshot Store(ConfigStoreState state1 = ConfigStoreState.Idle, ConfigStoreState state2 = ConfigStoreState.Idle,
-        bool dirty = false, uint current = 19, uint saved = 19, ushort slot = 1, uint sequence = 19) =>
+        bool dirty = false, uint current = 25, uint saved = 25, ushort slot = 1, uint sequence = 25) =>
         new((ushort)state1, (ushort)state2, state1, state2, dirty, current, saved, 2, slot, sequence);
-    private static FinalPersistenceExpectation Expectation()=>new(1,19,19,19,0,0,0,0);
+    private static FinalPersistenceExpectation Expectation()=>new(1,25,25,25,0,0,0,0);
 
     private static PersistenceJournal Journal()
     {
@@ -596,7 +596,7 @@ public sealed class PersistenceTests
         var summary = new PreflightSummary(2, PreflightWorkflowId, ClientCommit, "1.0.0", Hash64,
             ConfigurationPersistenceService.FixedStm32Commit, Baseline().Manifest.BaselineId,
             Baseline().Manifest.ActiveArraySha256, Baseline().ManifestSha256, now, now, 0, 0, 1, 2,
-            "192.168.1.100:502", 1, new DeviceIdentity(0x050C, 2, 0x0104, 1), new(1, 1, 0, 1, 0), requests, errors,
+            "192.168.1.100:502", 1, new DeviceIdentity(0x050F, 2, 0x0104, 1), new(1, 1, 0, 1, 0), requests, errors,
             new Dictionary<string, bool> { ["all"] = true }, "PASS", [], new Dictionary<string, string>());
         var binding = new ValidatedPreflightBinding(PreflightWorkflowId, "summary", Hash64, summary, store,
             new MailboxSnapshot(0, 0, 0, 0, new ushort[12]), Active(3));
@@ -634,7 +634,7 @@ public sealed class PersistenceTests
 
         public static FakePersistenceDevice AfterReboot(FakePersistenceDevice source) => new(source.Active, source.Store with
         { StateMirror1Raw = 0, StateMirror2Raw = 0, StateMirror1 = ConfigStoreState.Idle, StateMirror2 = ConfigStoreState.Idle }, 0);
-        public Task<DeviceIdentity> ReadIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DeviceIdentity(0x050C, 2, 0x0104, 1));
+        public Task<DeviceIdentity> ReadIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DeviceIdentity(0x050F, 2, 0x0104, 1));
         public Task<MailboxSnapshot> ReadMailboxAsync(CancellationToken cancellationToken = default) => Task.FromResult(new MailboxSnapshot(MailboxToken, 0, MailboxState, 0, new ushort[12]));
         public Task<ushort[]> ReadActiveConfigurationAsync(CancellationToken cancellationToken = default) {ActiveReadCalls++;if(ActiveReadErrorAfter==ActiveReadCalls)throw new IOException("stability read failure");return Task.FromResult(Active.ToArray());}
         public Task<ConfigStoreSnapshot> ReadConfigStoreAsync(CancellationToken cancellationToken = default)
@@ -702,7 +702,7 @@ public sealed class PersistenceTests
             }
             var values = new ushort[count];
             if (address == 0x0103) values[0] = 0;
-            else if (address == 14) { values[0] = Failure == "identity" ? (ushort)0x0103 : (ushort)0x0104; values[1] = 0x050C; }
+            else if (address == 14) { values[0] = Failure == "identity" ? (ushort)0x0103 : (ushort)0x0104; values[1] = 0x050F; }
             else if (address == 0x0020)
             {
                 sequenceReads++; values[0] = 0;
@@ -714,8 +714,8 @@ public sealed class PersistenceTests
                 Array.Copy(full, address % 0x40, values, 0, count);
             }
             else if (address == 0x004C && Failure == "mailbox") values[2] = 1;
-            else if (address == 0x0030) { values[0] = 0; values[2] = 0; values[3] = 0; values[4] = 19; values[5] = 0; values[6] = 19; }
-            else if (address == 0x01C0) { values[0] = 2; values[1] = 1; values[2] = 0; values[3] = 19; values[4] = Failure == "mirrors" ? (ushort)8 : (ushort)0; }
+            else if (address == 0x0030) { values[0] = 0; values[2] = 0; values[3] = 0; values[4] = 25; values[5] = 0; values[6] = 25; }
+            else if (address == 0x01C0) { values[0] = 2; values[1] = 1; values[2] = 0; values[3] = 25; values[4] = Failure == "mirrors" ? (ushort)8 : (ushort)0; }
             trace.Add(new(trace.Count + 1, at, at, 0, 3, address, count, "03", "03", values.Length, true, null, null, purpose, null));
             return Task.FromResult(values);
         }

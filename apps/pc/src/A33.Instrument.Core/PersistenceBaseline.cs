@@ -130,8 +130,11 @@ public static class PersistenceBaselineContract
                 BrightnessAddress: 0x0116, OriginalBrightness: Stage2BDeviceContract.OriginalBrightness,
                 ProvenBeforeFirstStage2BWrite: true, ActiveSlot: Stage2BDeviceContract.ExpectedBaselineSlot,
                 ActiveSequence: Stage2BDeviceContract.ExpectedBaselineSequence,
-                CurrentRevision: 19, SavedRevision: 19, PreconditioningSaveCount: 1,
-                PreconditioningPowerCycleCount: 1, Stage2BSaveCountAtCapture: 0,
+                CurrentRevision: Stage2BDeviceContract.ExpectedBaselineRevision,
+                SavedRevision: Stage2BDeviceContract.ExpectedBaselineRevision,
+                PreconditioningSaveCount: Stage2BDeviceContract.PreconditioningSaveCount,
+                PreconditioningPowerCycleCount: Stage2BDeviceContract.PreconditioningPowerCycleCount,
+                Stage2BSaveCountAtCapture: 0,
                 Stage2BRebootCountAtCapture: 0, BatteryDividerTopOhm: Stage2BDeviceContract.BatteryDividerTopOhm,
                 BatteryDividerBottomOhm: Stage2BDeviceContract.BatteryDividerBottomOhm })
             throw new InvalidDataException("Baseline Manifest does not match the fixed Stage 2B contract.");

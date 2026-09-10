@@ -35,6 +35,7 @@ public sealed class PersistenceEvidenceGateTests
     [Theory]
     [InlineData((ushort)0x050A)]
     [InlineData((ushort)0x050B)]
+    [InlineData((ushort)0x050C)]
     public void HistoricalFirmwareManifestIsRejected(ushort firmware)
     {
         Assert.Throws<InvalidDataException>(() => PersistenceBaselineContract.Validate(
@@ -51,13 +52,14 @@ public sealed class PersistenceEvidenceGateTests
 
     [Fact] public void PersistenceRunnerUsesOnlyTheCentralCurrentEvidenceRoot()
     {
-        Assert.Equal("Results/pc_stage2b_050c_hw", Stage2BDeviceContract.PersistenceEvidenceRoot);
+        Assert.Equal("Results/pc_stage2b_050f_hw", Stage2BDeviceContract.PersistenceEvidenceRoot);
         var root = Directory.GetParent(AppContext.BaseDirectory)!;
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "apps", "pc", "tools", "A33.Instrument.HardwareValidation", "PersistenceHardwareRunner.cs")))
             root = root.Parent;
         Assert.NotNull(root);
         var source = File.ReadAllText(Path.Combine(root!.FullName, "apps", "pc", "tools", "A33.Instrument.HardwareValidation", "PersistenceHardwareRunner.cs"));
         Assert.DoesNotContain("Results/pc_stage2b_050b_hw", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Results/pc_stage2b_050c_hw", source, StringComparison.Ordinal);
         Assert.Contains("Stage2BDeviceContract.PersistenceEvidenceRoot", source, StringComparison.Ordinal);
     }
 
@@ -447,7 +449,7 @@ public sealed class PersistenceEvidenceGateTests
         var baseline=Baseline();var active3=baseline.Manifest.ActiveRegisters.ToArray();var active4=active3.ToArray();active4[ConfigurationPersistenceService.BrightnessOffset]=4;
         var storeA0=Store() with{ConfigDirty=true,CurrentRevision=11,SavedRevision=10};var storeA1=Store() with{ActiveSlot=2,ActiveSequence=8,CurrentRevision=11,SavedRevision=11};
         var storeB0=storeA1 with{ConfigDirty=true,CurrentRevision=12,SavedRevision=11};var storeB1=storeA1 with{ActiveSlot=1,ActiveSequence=9,CurrentRevision=12,SavedRevision=12};
-        var mailbox=new MailboxSnapshot(0,0,0,0,new ushort[12]);var identity=new DeviceIdentity(0x050C,2,0x0104,1);var at=preflight.Now.AddMinutes(2);
+        var mailbox=new MailboxSnapshot(0,0,0,0,new ushort[12]);var identity=new DeviceIdentity(0x050F,2,0x0104,1);var at=preflight.Now.AddMinutes(2);
         var rebootA=new PersistenceRebootEvidence(at,identity,mailbox,storeA1,active4,PersistenceBaselineContract.ComputeActiveSha256(active4));
         var rebootB=new PersistenceRebootEvidence(at.AddMinutes(1),identity,mailbox,storeB1,active3,baseline.Manifest.ActiveArraySha256);
         var cycleA=new PersistenceCycleEvidence{Cycle=PersistenceCycle.A,ExpectedActiveConfiguration=active4,ActiveBeforeApply=active3,ActiveAfterApply=active4,SaveBefore=storeA0,SaveConfirmed=storeA1,MailboxTokens=[1,2,3,4],SaveToken=4,SaveReservedAtUtc=at.AddSeconds(-2),SaveRequestMayHaveBeenSent=true,RebootEvidence=rebootA};
@@ -483,10 +485,10 @@ public sealed class PersistenceEvidenceGateTests
     {
         var baseline = Baseline(); var active = baseline.Manifest.ActiveRegisters.ToArray(); var now = DateTimeOffset.Parse("2026-09-07T00:00:00Z");
         var requests = PreflightRequestStatistics.FromTrace(Trace()); var errors = new PreflightErrorCounters(0, 0, 0, 0, 0, 0, 0, 0);
-        return new StrictPreflightReport(true, [], new(0x050C, 2, 0x0104, 1),
+        return new StrictPreflightReport(true, [], new(0x050F, 2, 0x0104, 1),
             new(now, now, 0, now, now, 0, 1, 2), new ushort[34], active, active.ToArray(), active.ToArray(),
             baseline.Manifest.ActiveArraySha256, baseline.Manifest.ActiveArraySha256, [], new(0, 0, 0, 0, new ushort[12]),
-            new ConfigStorePreflightEvidence(A33.Instrument.Protocol.WordOrder.HighWordFirst,[0,1,0,0,19,0,19],[2,1,0,19,0],Store()), baseline.Manifest.BaselineId, baseline.Manifest.ActiveArraySha256, baseline.ManifestSha256,
+            new ConfigStorePreflightEvidence(A33.Instrument.Protocol.WordOrder.HighWordFirst,[0,1,0,0,25,0,25],[2,1,0,25,0],Store()), baseline.Manifest.BaselineId, baseline.Manifest.ActiveArraySha256, baseline.ManifestSha256,
             requests, errors, RequiredGates());
     }
 
@@ -521,7 +523,7 @@ public sealed class PersistenceEvidenceGateTests
         ["mailbox_idle"]=true,["config_store_known_consistent_idle"]=true,["config_store_clean"]=true,
         ["request_trace_consistent"]=true,["errors_clean"]=true,["read_only"]=true
     };
-    private static ConfigStoreSnapshot Store() => new(0, 0, ConfigStoreState.Idle, ConfigStoreState.Idle, false, 19, 19, 2, 1, 19);
+    private static ConfigStoreSnapshot Store() => new(0, 0, ConfigStoreState.Idle, ConfigStoreState.Idle, false, 25, 25, 2, 1, 25);
     private static TrustedPersistenceBaseline Baseline() => PersistenceBaselineContract.LoadFromRepository(RepositoryRoot());
     private static string RepositoryRoot()
     {
@@ -546,7 +548,7 @@ public sealed class PersistenceEvidenceGateTests
     {
         private readonly TaskCompletionSource firstRealtime=new(TaskCreationOptions.RunContinuationsAsynchronously);
         private ushort[] staging=baseline.ToArray();private ushort responseToken;private ushort lastCommand;
-        private bool dirty;private uint currentRevision=19;private uint savedRevision=19;private ushort activeSlot=1;private uint activeSequence=19;
+        private bool dirty;private uint currentRevision=25;private uint savedRevision=25;private ushort activeSlot=1;private uint activeSequence=25;
         public ushort[] Active{get;private set;}=baseline.ToArray();public int SaveCount{get;private set;}public int RealtimeAttempts{get;private set;}public bool HoldFirstRealtime{get;init;}public bool IsOpen{get;private set;}public string Endpoint=>"memory://persistence";
         public Task OpenAsync(CancellationToken cancellationToken){cancellationToken.ThrowIfCancellationRequested();IsOpen=true;return Task.CompletedTask;}
         public Task CloseAsync(){IsOpen=false;return Task.CompletedTask;}
@@ -584,14 +586,14 @@ public sealed class PersistenceEvidenceGateTests
         {
             ushort[] source=address switch
             {
-                0=>Realtime(),14=>[0x0104,0x050C],0x0030=>Diagnostics(),0x004C=>Mailbox(),
+                0=>Realtime(),14=>[0x0104,0x050F],0x0030=>Diagnostics(),0x004C=>Mailbox(),
                 >=0x0100 and <=0x013F=>Active.Skip(address-0x0100).Take(count).ToArray(),
                 >=0x0140 and <=0x017F=>staging.Skip(address-0x0140).Take(count).ToArray(),
                 0x01C0=>Storage(),_=>new ushort[count]
             };
             return source.Take(count).Concat(Enumerable.Repeat((ushort)0,Math.Max(0,count-source.Length))).ToArray();
         }
-        private ushort[] Realtime(){var values=new ushort[34];values[14]=0x0104;values[15]=0x050C;values[32]=0;values[33]=1;return values;}
+        private ushort[] Realtime(){var values=new ushort[34];values[14]=0x0104;values[15]=0x050F;values[32]=0;values[33]=1;return values;}
         private ushort[] Diagnostics()=>[0,0,dirty?(ushort)1:(ushort)0,(ushort)(currentRevision>>16),(ushort)currentRevision,(ushort)(savedRevision>>16),(ushort)savedRevision];
         private ushort[] Storage()=>[2,activeSlot,(ushort)(activeSequence>>16),(ushort)activeSequence,0];
         private ushort[] Mailbox()=>[responseToken,lastCommand==13?(ushort)1:(ushort)0,0,lastCommand,0,0,0,0,0,0,0,0];
