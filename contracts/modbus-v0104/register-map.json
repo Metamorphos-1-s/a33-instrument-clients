@@ -9,7 +9,7 @@
  {"address":12,"name":"division","register_count":1,"data_type":"uint16","signed":false,"unit":"digit","access":"read","word_order_rule":"single","description":"display division digit","map_version":"0x0104"},
  {"address":13,"name":"weight_view","register_count":1,"data_type":"uint16","signed":false,"unit":"enum","access":"read","word_order_rule":"single","description":"0 net, 1 gross","map_version":"0x0104"},
  {"address":14,"name":"register_map_version","register_count":1,"data_type":"uint16","signed":false,"unit":"","access":"read","word_order_rule":"single","description":"must be 0x0104","map_version":"0x0104"},
- {"address":15,"name":"firmware_version","register_count":1,"data_type":"uint16","signed":false,"unit":"","access":"read","word_order_rule":"single","description":"firmware 0x050C","map_version":"0x0104"},
+ {"address":15,"name":"firmware_version","register_count":1,"data_type":"uint16","signed":false,"unit":"","access":"read","word_order_rule":"single","description":"product baseline firmware 0x050F","map_version":"0x0104"},
  {"address":16,"name":"net_mass_ug","register_count":4,"data_type":"int64","signed":true,"unit":"ug","access":"read","word_order_rule":"configurable","description":"operational net","map_version":"0x0104"},
  {"address":20,"name":"gross_mass_ug","register_count":4,"data_type":"int64","signed":true,"unit":"ug","access":"read","word_order_rule":"configurable","description":"operational gross","map_version":"0x0104"},
  {"address":24,"name":"tare_mass_ug","register_count":4,"data_type":"int64","signed":true,"unit":"ug","access":"read","word_order_rule":"configurable","description":"active tare","map_version":"0x0104"},

@@ -74,8 +74,8 @@ public sealed record TrustedPersistenceBaseline(PersistenceBaselineManifest Mani
 
 public static class PersistenceBaselineContract
 {
-    public const string RelativeManifestPath = "Results/pc_stage2b_050c_baseline/persistence_baseline_manifest.json";
-    public const string BaselineId = "a33-stage2b-fw050c-brightness3-20260909";
+    public const string RelativeManifestPath = Stage2BDeviceContract.BaselineRoot + "/persistence_baseline_manifest.json";
+    public const string BaselineId = Stage2BDeviceContract.BaselineId;
     public const string ActiveSha256 = Stage2BDeviceContract.PcJsonActiveSha256;
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = false };
 
