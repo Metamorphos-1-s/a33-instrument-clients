@@ -17,8 +17,11 @@ command, APPLY, SAVE, retry or reboot occurred in either capture.
 After the 600-second CH579/RS232 concurrency gate, final strict Preflight
 `a4661ca3-01e1-4463-a897-d6325430cdc2` passed 30/30 FC03 and all gates. Its
 summary SHA-256 is `AB3256C87571B9E01B6A9DDCAC0C811A982115D552F688306E617B551FD3FCBB`.
-The new 0x050F evidence roots use a Git `-text` attribute so captured bytes and
+The new 0x050F evidence roots use a Git `binary` attribute so captured bytes and
 their embedded SHA-256 values survive clean checkout unchanged on every OS.
+Both recorded Preflights are audit evidence. Because the branch advanced while
+archiving them, neither may authorize a future SAVE; the physical persistence
+workflow must build the final tool commit and capture a new strict Preflight.
 
 Ordinary monitoring compatibility is protocol based: WPF requires the exact
 register map it decodes; WeChat requires BLE Protocol 1, Schema 2, Map 0x0104

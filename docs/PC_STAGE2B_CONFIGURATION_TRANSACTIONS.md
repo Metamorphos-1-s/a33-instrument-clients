@@ -18,6 +18,9 @@ The final post-concurrency Preflight is
 64/64 hash match, brightness 3, A/25, revision 25/25, dirty 0, Mailbox and
 ConfigStore idle. Summary SHA-256 is
 `AB3256C87571B9E01B6A9DDCAC0C811A982115D552F688306E617B551FD3FCBB`.
+This is audit evidence, not reusable write authorization: the branch advanced
+after capture to archive evidence and documentation. A future SAVE run must
+rebuild the final commit and create a fresh bound Preflight.
 
 ## Historical 0x050C rebaseline
 
