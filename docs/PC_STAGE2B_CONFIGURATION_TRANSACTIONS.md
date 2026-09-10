@@ -1,6 +1,27 @@
 # PC Client Stage 2B Configuration Transactions
 
-Firmware `0x050C` rebaseline work uses the centralized `Stage2BDeviceContract`
+## Current 0x050F product baseline
+
+The centralized `Stage2BDeviceContract` now binds Firmware `0x050F`, Schema 2,
+Map `0x0104`, product commit `b119703`, evidence commit `5236da6`, Release ELF
+SHA-256 `15C8269A...E8D`, baseline A/25 revision 25/25 and the dedicated
+`Results/pc_stage2b_050f_baseline` / `Results/pc_stage2b_050f_hw` roots.
+
+The real FC03-only baseline capture and strict Preflight pass with zero write,
+retry, reconnect or error. The protected SAVE workflow retains exactly-once
+SAVE, no automatic retry and RESULT_UNCERTAIN lockout. The 0x050F two-SAVE and
+two-physical-power-cycle run is NOT RUN; all 0x050C evidence below is historical
+and cannot authorize or complete a new workflow.
+
+The final post-concurrency Preflight is
+`a4661ca3-01e1-4463-a897-d6325430cdc2`: 30/30 FC03, all gates true, Active
+64/64 hash match, brightness 3, A/25, revision 25/25, dirty 0, Mailbox and
+ConfigStore idle. Summary SHA-256 is
+`AB3256C87571B9E01B6A9DDCAC0C811A982115D552F688306E617B551FD3FCBB`.
+
+## Historical 0x050C rebaseline
+
+Firmware `0x050C` rebaseline work used the centralized `Stage2BDeviceContract`
 and separate `Results/pc_stage2b_050c_baseline` and
 `Results/pc_stage2b_050c_hw` roots. Firmware `0x050A` and `0x050B` Results
 remain historical and are not valid input for a new workflow.

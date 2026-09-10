@@ -1,9 +1,9 @@
 # A33 Instrument Clients
 
 Client Stage 0 contracts and protocol libraries for the A33 weighing instrument.
-The fixed STM32 protocol source of truth for the current PC Stage 2B work is
-the sibling repository `stm32f103rbt6_a33` at commit
-`71a61249645bff6249286ac801d7f468786cfe85`.
+The current product baseline is STM32 Firmware `0x050F`, Register Map `0x0104`,
+Schema `2`, BLE Protocol `1`: product code commit `b119703cee70b228aa240e7f3477c7dca9946841`
+and evidence commit `5236da68341e8feed0c6f6aedbc5ee52cea91f3b`.
 
 This repository contains a native TypeScript WeChat Mini Program core and a
 .NET 10/WPF PC skeleton. Hardware communication is intentionally deferred to
@@ -97,6 +97,7 @@ evidence exists; RS232 full post-fix runtime validation and part of the Stage
 PC Stage 2B provides the safe configuration foundation and a protected fixed
 TCP brightness persistence workflow. Brightness RAM apply/cancel and a clean
 read-only hardware baseline are verified. General WPF Flash saving is not
-exposed, and the two-SAVE/two-reboot persistence qualification has not started.
+exposed. The independent 0x050F FC03-only baseline and strict Preflight pass;
+the 0x050F two-SAVE/two-physical-power-cycle qualification is not run.
 See `docs/CLIENT_PROJECT_ROADMAP.md` and
 `docs/PC_STAGE2B_CONFIGURATION_TRANSACTIONS.md` for the exact boundary.

@@ -1,0 +1,5 @@
+# New Stage 5J evidence is stored byte-for-byte. Embedded SHA-256 values must
+# not depend on checkout-platform line ending conversion.
+Results/pc_stage2b_050f_baseline/** binary
+Results/pc_stage2b_050f_hw/** binary
+docs/evidence/*.json text eol=lf
