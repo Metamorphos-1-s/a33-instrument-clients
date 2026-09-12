@@ -48,6 +48,7 @@ $baselinePath = Join-Path $root 'Results/pc_stage2c_0510_baseline/persistence_ba
 $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
 if ($baseline.schema_version -ne 2 -or $baseline.baseline_id -ne 'a33-stage2c-fw0510-brightness3-20260912' -or
     $baseline.firmware_version -ne 0x0510 -or $baseline.register_map -ne 0x0104 -or $baseline.device_schema -ne 2 -or
+    $baseline.persistent_format_version -ne 3 -or $baseline.slot_schema_version -ne 3 -or $baseline.slot_payload_length -ne 281 -or
     $baseline.register_count -ne 64 -or $baseline.active_registers.Count -ne 64 -or
     $baseline.original_brightness -ne 3 -or $baseline.active_slot -ne 1 -or $baseline.active_sequence -ne 3 -or
     $baseline.current_revision -ne 3 -or $baseline.saved_revision -ne 3 -or -not $baseline.proven_before_first_stage2b_write -or
@@ -61,14 +62,14 @@ $sha256 = [System.Security.Cryptography.SHA256]::Create()
 try { $hashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonical)) }
 finally { $sha256.Dispose() }
 $baselineHash = ([BitConverter]::ToString($hashBytes)).Replace('-', '')
-if ($baselineHash -ne $baseline.active_array_sha256 -or $baselineHash -ne 'B7D78D5BD4A6DE0BE2C0DA201C167A0178608FCFF49F6297664C87C79018EE73') {
+if ($baselineHash -ne $baseline.active_array_sha256 -or $baselineHash -ne '91D346E87BD112EFAC3B513A8CAFBBDDE9642069A15280DB7565374378BA43E1') {
   throw 'persistence baseline hash mismatch'
 }
 $binary=[System.Collections.Generic.List[byte]]::new(); foreach($value in $baseline.active_registers){$binary.Add([byte]([int]$value -shr 8));$binary.Add([byte]([int]$value -band 0xff))}
 $shaBinary=[System.Security.Cryptography.SHA256]::Create()
 try{$binaryHash=([BitConverter]::ToString($shaBinary.ComputeHash($binary.ToArray()))).Replace('-','')}
 finally{$shaBinary.Dispose()}
-if($binaryHash -ne $baseline.stm32_binary_active_sha256 -or $binaryHash -ne '4BA7DA269DECB38D631ED8076A4FE90B7EF70AA04123CF15D5662B7DBBD4DD98'){throw 'STM32 binary baseline hash mismatch'}
+if($binaryHash -ne $baseline.stm32_binary_active_sha256 -or $binaryHash -ne 'F596F7460C911607FA8328A6D4BA5725EA5A0E5B14765D61EE7889A0D62F48A4'){throw 'STM32 binary baseline hash mismatch'}
 if ($goldenBle.frames.Count -lt 3 -or $goldenModbus.tcp.mapVersionRequest -ne '0001000000060103000e0001') { throw 'golden vectors incomplete' }
 foreach($frame in $goldenBle.frames){if(-not (Test-Crc $frame.hex)){throw "BLE golden CRC invalid: $($frame.name)"}}
 Write-Output "Validated $($map.Count) register definitions, no overlaps; BLE/Modbus golden contracts parsed."

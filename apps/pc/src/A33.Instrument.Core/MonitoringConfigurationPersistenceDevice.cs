@@ -11,7 +11,7 @@ public sealed class MonitoringConfigurationPersistenceDevice(InstrumentMonitorin
     public async Task<DeviceIdentity> ReadIdentityAsync(CancellationToken cancellationToken = default)
     {
         var identity = await ReadHoldingAsync(14, 2, cancellationToken);
-        var schema = (await ReadHoldingAsync(ConfigStoreContract.StorageSchemaAddress, 1, cancellationToken))[0];
+        var schema = (await ReadHoldingAsync(0x013E, 1, cancellationToken))[0];
         return new DeviceIdentity(identity[1], schema, identity[0], monitoring.CurrentOptions?.UnitId ?? 0);
     }
 

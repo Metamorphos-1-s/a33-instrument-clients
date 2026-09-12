@@ -53,6 +53,9 @@ public sealed record PersistenceBaselineManifest(
     [JsonPropertyName("capture_mailbox_idle")] public bool CaptureMailboxIdle { get; init; }
     [JsonPropertyName("capture_config_store_state")] public int CaptureConfigStoreState { get; init; }
     [JsonPropertyName("capture_config_store_clean")] public bool CaptureConfigStoreClean { get; init; }
+    [JsonPropertyName("persistent_format_version")] public ushort PersistentFormatVersion { get; init; }
+    [JsonPropertyName("slot_schema_version")] public ushort SlotSchemaVersion { get; init; }
+    [JsonPropertyName("slot_payload_length")] public ushort SlotPayloadLength { get; init; }
     [JsonPropertyName("stm32_production_commit")] public string Stm32ProductionCommit { get; init; } = "";
     [JsonPropertyName("stm32_evidence_commit")] public string Stm32EvidenceCommit { get; init; } = "";
     [JsonPropertyName("stm32_release_elf_sha256")] public string Stm32ReleaseElfSha256 { get; init; } = "";
@@ -123,6 +126,9 @@ public static class PersistenceBaselineContract
             manifest.Stm32EvidenceCommit != Stage2BDeviceContract.Stm32EvidenceCommit ||
             manifest.Stm32ReleaseElfSha256 != Stage2BDeviceContract.Stm32ReleaseElfSha256 ||
             manifest.Stm32BinaryActiveSha256 != Stage2BDeviceContract.Stm32BinaryActiveSha256 ||
+            manifest.PersistentFormatVersion != Stage2BDeviceContract.PersistentFormatVersion ||
+            manifest.SlotSchemaVersion != Stage2BDeviceContract.SlotSchemaVersion ||
+            manifest.SlotPayloadLength != Stage2BDeviceContract.SlotPayloadLength ||
             manifest is not { FirmwareVersion: Stage2BDeviceContract.FirmwareVersion,
                 DeviceSchema: Stage2BDeviceContract.SchemaVersion,
                 RegisterMap: Stage2BDeviceContract.RegisterMapVersion, UnitId: Stage2BDeviceContract.UnitId,
@@ -152,7 +158,7 @@ public static class PersistenceBaselineContract
             throw new InvalidDataException("Baseline provenance is incomplete.");
         if (!Guid.TryParse(manifest.CaptureWorkflowId, out _) ||
             manifest.CaptureToolAssemblyVersion != "1.0.0.0" || manifest.CaptureToolSha256.Length != 64 ||
-            manifest.CaptureFc03Attempted != 17 || manifest.CaptureFc03Succeeded != 17 ||
+            manifest.CaptureFc03Attempted != 18 || manifest.CaptureFc03Succeeded != 18 ||
             manifest.CaptureFc03Failed != 0 || manifest.CaptureFc06 != 0 || manifest.CaptureFc16 != 0 ||
             manifest.CaptureCommandCount != 0 || manifest.CaptureAutomaticRetries != 0 ||
             manifest.CaptureStagingRegisterCount != 64 || !manifest.CaptureMailboxIdle ||
@@ -183,6 +189,7 @@ public static class PersistenceBaselineContract
         var second = AtomicJsonFile.Read<ushort[]>(Path.Combine(directory, "active-snapshot-2.json"));
         if (!first.SequenceEqual(manifest.ActiveRegisters) || !second.SequenceEqual(manifest.ActiveRegisters) ||
             root.GetProperty("Identity").GetProperty("FirmwareVersion").GetUInt16() != manifest.FirmwareVersion ||
+            root.GetProperty("Identity").GetProperty("SchemaVersion").GetUInt16() != manifest.DeviceSchema ||
             root.GetProperty("Identity").GetProperty("MapVersion").GetUInt16() != manifest.RegisterMap ||
             root.GetProperty("UnitId").GetByte() != manifest.UnitId ||
             root.GetProperty("ClientCommit").GetString() != manifest.SourceClientCommit ||
@@ -191,7 +198,7 @@ public static class PersistenceBaselineContract
             root.GetProperty("Stm32BinaryActiveSha256").GetString() != Stage2BDeviceContract.Stm32BinaryActiveSha256)
             throw new InvalidDataException("Baseline Manifest does not match its preserved source evidence.");
         var trace = AtomicJsonFile.Read<PreflightRequestTrace[]>(Path.Combine(directory, "request-trace.json"));
-        if (trace.Length != 17 || trace.Any(x => x.FunctionCode != 3 || !x.Succeeded || x.RegisterCount is 0 or > 16))
+        if (trace.Length != 18 || trace.Any(x => x.FunctionCode != 3 || !x.Succeeded || x.RegisterCount is 0 or > 16))
             throw new InvalidDataException("Baseline capture trace is not the fixed successful FC03-only plan.");
         var summary = root;
         if (summary.GetProperty("WorkflowId").GetString() != manifest.CaptureWorkflowId ||

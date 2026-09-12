@@ -33,13 +33,13 @@ public sealed class PersistenceTests
 
     [Fact] public void ConfigStoreDecodeUsesHighWordFirst()
     {
-        var value = ConfigStoreContract.Decode([0, 1, 1, 0x1234, 0x5678, 0x9ABC, 0xDEF0], [2, 2, 0x0102, 0x0304, 0], WordOrder.HighWordFirst);
+        var value = ConfigStoreContract.Decode([0, 1, 1, 0x1234, 0x5678, 0x9ABC, 0xDEF0], [3, 2, 0x0102, 0x0304, 0], WordOrder.HighWordFirst);
         Assert.Equal(0x12345678U, value.CurrentRevision); Assert.Equal(0x9ABCDEF0U, value.SavedRevision); Assert.Equal(0x01020304U, value.ActiveSequence);
     }
 
     [Fact] public void ConfigStoreDecodeUsesConfiguredLowWordFirst()
     {
-        var value = ConfigStoreContract.Decode([0, 1, 0, 0x5678, 0x1234, 0xDEF0, 0x9ABC], [2, 1, 0x0304, 0x0102, 0], WordOrder.LowWordFirst);
+        var value = ConfigStoreContract.Decode([0, 1, 0, 0x5678, 0x1234, 0xDEF0, 0x9ABC], [3, 1, 0x0304, 0x0102, 0], WordOrder.LowWordFirst);
         Assert.Equal(0x12345678U, value.CurrentRevision); Assert.Equal(0x9ABCDEF0U, value.SavedRevision); Assert.Equal(0x01020304U, value.ActiveSequence);
     }
 
@@ -128,7 +128,7 @@ public sealed class PersistenceTests
     [Fact] public async Task TwoIndependentProcessesCompleteFixedTwoSaveWorkflow()
     {
         using var files = new TempFiles(); var path = files.Path("journal.json"); var clock = new FakeClock();
-        var firstDevice = new FakePersistenceDevice(Active(3), Store(slot: 1, sequence: 25), 0);
+        var firstDevice = new FakePersistenceDevice(Active(3), Store(slot: 1, sequence: 3), 0);
         var first = await Service(firstDevice, clock).StartAsync(path, Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.WaitingForFirstReboot, first.Phase); Assert.Equal(1, firstDevice.SaveCalls); Assert.Equal(4, firstDevice.Active[22]);
         Assert.Contains(first.Events, item => item.Kind == PersistenceEventKind.SaveConfirmed);
@@ -409,7 +409,7 @@ public sealed class PersistenceTests
     {
         var access = new FakePreflightAccess(); var report = await new StrictPreflightService(access, Baseline(), new FakeClock()).RunAsync();
         Assert.True(report.Passed, string.Join(" ", report.FailureReasons));
-        Assert.Equal(access.Trace.Count, report.Requests.Fc03Attempted); Assert.Equal(22, report.Requests.Fc03Attempted); Assert.Equal(22, report.Requests.Fc03Succeeded);
+        Assert.Equal(access.Trace.Count, report.Requests.Fc03Attempted); Assert.Equal(23, report.Requests.Fc03Attempted); Assert.Equal(23, report.Requests.Fc03Succeeded);
         Assert.All(access.Trace, item => Assert.True(item.Succeeded));
     }
 
@@ -471,8 +471,8 @@ public sealed class PersistenceTests
     [Fact] public async Task TransientConfigStoreMirrorMismatchUsesReadOnlyResampling()
     {
         using var files = new TempFiles(); var device = new FakePersistenceDevice(Active(3), Store(), 0);
-        var completed = Store(current: 26, saved: 26, slot: 2, sequence: 26);
-        device.PostSaveSnapshots.Enqueue(Store(state2: ConfigStoreState.Complete, dirty: true, current: 26, saved: 25));
+        var completed = Store(current: 4, saved: 4, slot: 2, sequence: 4);
+        device.PostSaveSnapshots.Enqueue(Store(state2: ConfigStoreState.Complete, dirty: true, current: 4, saved: 3));
         device.PostSaveSnapshots.Enqueue(completed); device.PostSaveSnapshots.Enqueue(completed);
         var journal = await Service(device).StartAsync(files.Path("j.json"), Guid.NewGuid().ToString(), ClientCommit);
         Assert.Equal(PersistencePhase.WaitingForFirstReboot, journal.Phase); Assert.Equal(1, device.SaveCalls);
@@ -555,9 +555,9 @@ public sealed class PersistenceTests
     }
 
     private static ConfigStoreSnapshot Store(ConfigStoreState state1 = ConfigStoreState.Idle, ConfigStoreState state2 = ConfigStoreState.Idle,
-        bool dirty = false, uint current = 25, uint saved = 25, ushort slot = 1, uint sequence = 25) =>
-        new((ushort)state1, (ushort)state2, state1, state2, dirty, current, saved, 2, slot, sequence);
-    private static FinalPersistenceExpectation Expectation()=>new(1,25,25,25,0,0,0,0);
+        bool dirty = false, uint current = 3, uint saved = 3, ushort slot = 1, uint sequence = 3) =>
+        new((ushort)state1, (ushort)state2, state1, state2, dirty, current, saved, 3, slot, sequence);
+    private static FinalPersistenceExpectation Expectation()=>new(1,3,3,3,0,0,0,0);
 
     private static PersistenceJournal Journal()
     {
@@ -703,6 +703,7 @@ public sealed class PersistenceTests
             var values = new ushort[count];
             if (address == 0x0103) values[0] = 0;
             else if (address == 14) { values[0] = Failure == "identity" ? (ushort)0x0103 : (ushort)0x0104; values[1] = 0x0510; }
+            else if (address == 0x013E) values[0] = 2;
             else if (address == 0x0020)
             {
                 sequenceReads++; values[0] = 0;
@@ -714,8 +715,8 @@ public sealed class PersistenceTests
                 Array.Copy(full, address % 0x40, values, 0, count);
             }
             else if (address == 0x004C && Failure == "mailbox") values[2] = 1;
-            else if (address == 0x0030) { values[0] = 0; values[2] = 0; values[3] = 0; values[4] = 25; values[5] = 0; values[6] = 25; }
-            else if (address == 0x01C0) { values[0] = 2; values[1] = 1; values[2] = 0; values[3] = 25; values[4] = Failure == "mirrors" ? (ushort)8 : (ushort)0; }
+            else if (address == 0x0030) { values[0] = 0; values[2] = 0; values[3] = 0; values[4] = 3; values[5] = 0; values[6] = 3; }
+            else if (address == 0x01C0) { values[0] = 3; values[1] = 1; values[2] = 0; values[3] = 3; values[4] = Failure == "mirrors" ? (ushort)8 : (ushort)0; }
             trace.Add(new(trace.Count + 1, at, at, 0, 3, address, count, "03", "03", values.Length, true, null, null, purpose, null));
             return Task.FromResult(values);
         }

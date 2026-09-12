@@ -595,7 +595,7 @@ public sealed class PersistenceEvidenceGateTests
         }
         private ushort[] Realtime(){var values=new ushort[34];values[14]=0x0104;values[15]=0x0510;values[32]=0;values[33]=1;return values;}
         private ushort[] Diagnostics()=>[0,0,dirty?(ushort)1:(ushort)0,(ushort)(currentRevision>>16),(ushort)currentRevision,(ushort)(savedRevision>>16),(ushort)savedRevision];
-        private ushort[] Storage()=>[2,activeSlot,(ushort)(activeSequence>>16),(ushort)activeSequence,0];
+        private ushort[] Storage()=>[3,activeSlot,(ushort)(activeSequence>>16),(ushort)activeSequence,0];
         private ushort[] Mailbox()=>[responseToken,lastCommand==13?(ushort)1:(ushort)0,0,lastCommand,0,0,0,0,0,0,0,0];
         private static byte[] ReadResponse(ushort[] values){var response=new byte[2+values.Length*2];response[0]=3;response[1]=(byte)(values.Length*2);for(var i=0;i<values.Length;i++){response[2+i*2]=(byte)(values[i]>>8);response[3+i*2]=(byte)values[i];}return response;}
     }

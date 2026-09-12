@@ -234,7 +234,7 @@ public sealed class ConfigurationPersistenceService(
         }
         if (!expected.SequenceEqual(applied))
             return await MarkUncertainAsync(journalPath, journal, "APPLY readback does not match the expected 64-register configuration.", cancellationToken);
-        if (before.SchemaVersion != 2 || !before.StatesKnown || !before.StatesConsistent || before.State != ConfigStoreState.Idle ||
+        if (before.SchemaVersion != Stage2BDeviceContract.PersistentFormatVersion || !before.StatesKnown || !before.StatesConsistent || before.State != ConfigStoreState.Idle ||
             !before.ConfigDirty || before.CurrentRevision == before.SavedRevision || ConfigStoreContract.NextSlot(before.ActiveSlot) == 0)
             return await MarkUncertainAsync(journalPath, journal, "ConfigStore pre-SAVE snapshot is not trustworthy.", cancellationToken);
 
@@ -447,7 +447,7 @@ public sealed class ConfigurationPersistenceService(
         PersistenceBaselineContract.Validate(safetyContext.Baseline.Manifest);
         var boundStore = safetyContext.Preflight.ConfigStore;
         var valid = Stage2BDeviceContract.Matches(identity) &&
-            !mailbox.Busy && !mailbox.Pending && store.SchemaVersion == 2 && store.StatesKnown && store.StatesConsistent &&
+            !mailbox.Busy && !mailbox.Pending && store.SchemaVersion == Stage2BDeviceContract.PersistentFormatVersion && store.StatesKnown && store.StatesConsistent &&
             store.State == ConfigStoreState.Idle && !store.ConfigDirty && store.CurrentRevision == store.SavedRevision &&
             store.ActiveSlot is 1 or 2 && store.ActiveSlot == boundStore.ActiveSlot &&
             store.ActiveSequence == boundStore.ActiveSequence && store.CurrentRevision == boundStore.CurrentRevision &&

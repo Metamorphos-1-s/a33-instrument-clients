@@ -84,7 +84,9 @@ public static class ConfigStoreCompletionEvaluator
         ConfigStoreSnapshot before, ConfigStoreSnapshot current,
         IReadOnlyList<ushort> expectedActive, IReadOnlyList<ushort> actualActive)
     {
-        if (before.SchemaVersion != 2 || current.SchemaVersion != 2) return Uncertain("ConfigStore schema is not 2.");
+        if (before.SchemaVersion != Stage2BDeviceContract.PersistentFormatVersion ||
+            current.SchemaVersion != Stage2BDeviceContract.PersistentFormatVersion)
+            return Uncertain("ConfigStore persistent format is not 3.");
         if (!current.StatesKnown) return Uncertain("Unknown ConfigStore state value.");
         if (!current.StatesConsistent) return Uncertain("ConfigStore state mirrors disagree.");
         if (current.State == ConfigStoreState.Error)

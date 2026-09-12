@@ -16,7 +16,7 @@ public sealed class BaselineCaptureTests
         var exit = await BaselineCaptureRunner.RunAsync(Args(temp.Root), _ => { calls++; return fake; });
         Assert.Equal(0, exit);
         Assert.Equal(1, calls);
-        Assert.Equal(17, fake.Trace.Count);
+        Assert.Equal(18, fake.Trace.Count);
         Assert.All(fake.Trace, item => Assert.Equal(3, item.FunctionCode));
         Assert.Equal(0, fake.WriteCount);
         var directory = Assert.Single(Directory.GetDirectories(temp.Root));
@@ -95,7 +95,7 @@ public sealed class BaselineCaptureTests
     private sealed class CaptureSession : IStrictPreflightSession
     {
         private static readonly ushort[] Active =
-        [0,1,7,0,0,0,45776,24064,0,0,15,16960,0,0,0,1,3,1,2,1,3,1,3,0,0,0,0,0,0,0,0,0,0,3,2,1,8,500,0,0,30,33920,0,0,61,2304,1,3,0,0,8,500,0,0,30,33920,0,0,61,2304,1,0,2,0];
+        [0,1,7,0,0,0,45776,24064,0,0,15,16960,0,0,0,0,3,1,2,1,3,1,3,1,0,0,45776,24064,0,0,0,0,0,3,3,3,8,1000,0,0,0,50000,0,0,1,34464,1,3,0,0,8,500,0,0,30,33920,0,0,61,2304,0,0,2,0];
         private readonly List<PreflightRequestTrace> trace = [];
         private int activeRead;
         public string? Failure { get; init; }
@@ -117,6 +117,7 @@ public sealed class BaselineCaptureTests
             ushort[] values;
             if (address == 0x0103 && count == 1) values = [0];
             else if (address == 14 && count == 2) values = [0x0104, Failure == "firmware" ? (ushort)0x050C : (ushort)0x0510];
+            else if (address == 0x013E && count == 1) values = [Failure == "schema" ? (ushort)1 : (ushort)2];
             else if (address is >= 0x0100 and <= 0x0130)
             {
                 values = Active.Skip(address - 0x0100).Take(count).ToArray();

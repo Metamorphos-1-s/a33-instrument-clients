@@ -61,6 +61,7 @@ public static class BaselineCaptureRunner
                 _ => throw new InvalidDataException("Unknown word order.")
             };
             var identityRaw = await access.ReadForPreflightAsync(14, 2, PreflightReadPurpose.Identity);
+            var publicSchema = (await access.ReadForPreflightAsync(0x013E, 1, PreflightReadPurpose.Identity))[0];
             active1 = await Read64(access, 0x0100, PreflightReadPurpose.Active);
             active2 = await Read64(access, 0x0100, PreflightReadPurpose.Active);
             staging = await Read64(access, 0x0140, PreflightReadPurpose.Staging);
@@ -69,7 +70,7 @@ public static class BaselineCaptureRunner
             var storage = await access.ReadForPreflightAsync(0x01C0, 5, PreflightReadPurpose.ConfigStore);
             var store = ConfigStoreContract.Decode(diagnostics, storage, access.WordOrder);
             storeEvidence = new(access.WordOrder, diagnostics, storage, store);
-            identity = new(identityRaw[1], store.SchemaVersion, identityRaw[0], access.UnitId);
+            identity = new(identityRaw[1], publicSchema, identityRaw[0], access.UnitId);
         }
         catch (Exception error)
         {

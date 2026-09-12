@@ -81,6 +81,7 @@ public sealed class StrictPreflightService(
         var orderValue = (await ReadAsync(0x0103, 1, PreflightReadPurpose.Identity, cancellationToken))[0];
         registers.WordOrder = orderValue switch { 0 => WordOrder.HighWordFirst, 1 => WordOrder.LowWordFirst, _ => throw new InvalidDataException("Unknown Modbus word order.") };
         var identityWords = await ReadAsync(14, 2, PreflightReadPurpose.Identity, cancellationToken);
+        var publicSchema = (await ReadAsync(0x013E, 1, PreflightReadPurpose.Identity, cancellationToken))[0];
         var (realtime, timing) = await ReadFreshRealtimeAsync(started, cancellationToken);
         var active1 = await ReadConfigurationAsync(0x0100, PreflightReadPurpose.Active, cancellationToken);
         var staging = await ReadConfigurationAsync(0x0140, PreflightReadPurpose.Staging, cancellationToken);
@@ -91,7 +92,7 @@ public sealed class StrictPreflightService(
         var store = ConfigStoreContract.Decode(diagnostics, storage, registers.WordOrder);
         var storeEvidence = new ConfigStorePreflightEvidence(registers.WordOrder, diagnostics, storage, store);
         var active2 = await ReadConfigurationAsync(0x0100, PreflightReadPurpose.Active, cancellationToken);
-        var identity = new DeviceIdentity(identityWords[1], store.SchemaVersion, identityWords[0], registers.UnitId);
+        var identity = new DeviceIdentity(identityWords[1], publicSchema, identityWords[0], registers.UnitId);
         var activeHash1 = PersistenceBaselineContract.ComputeActiveSha256(active1);
         var activeHash2 = PersistenceBaselineContract.ComputeActiveSha256(active2);
         var differences = active1.Select((value, index) => new { value, index }).Where(x => staging[x.index] != x.value)
