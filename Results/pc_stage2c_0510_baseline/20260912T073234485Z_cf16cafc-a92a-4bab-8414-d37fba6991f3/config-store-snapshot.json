@@ -1,0 +1,34 @@
+{
+  "WordOrder": 0,
+  "DiagnosticsRaw": [
+    0,
+    1,
+    0,
+    0,
+    3,
+    0,
+    3
+  ],
+  "StorageRaw": [
+    3,
+    1,
+    0,
+    3,
+    0
+  ],
+  "Parsed": {
+    "StateMirror1Raw": 0,
+    "StateMirror2Raw": 0,
+    "StateMirror1": 0,
+    "StateMirror2": 0,
+    "ConfigDirty": false,
+    "CurrentRevision": 3,
+    "SavedRevision": 3,
+    "SchemaVersion": 3,
+    "ActiveSlot": 1,
+    "ActiveSequence": 3,
+    "StatesKnown": true,
+    "StatesConsistent": true,
+    "State": 0
+  }
+}
