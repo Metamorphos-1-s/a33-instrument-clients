@@ -1,11 +1,11 @@
 # A33 Client Project Roadmap
 
-## Stage 5J Firmware 0x050F rebaseline
+## Stage 5J Firmware 0x0510 rebaseline
 
-The current strict Stage 2B contract is Firmware `0x050F`, Map `0x0104`,
+The current strict Stage 2B contract is Firmware `0x0510`, Map `0x0104`,
 Schema `2`, STM32 product commit `b119703`, evidence commit `5236da6`, and
 Release ELF SHA-256 `15C8269A...E8D`. New evidence roots are
-`Results/pc_stage2b_050f_baseline` and `Results/pc_stage2b_050f_hw`; no current
+`Results/pc_stage2c_0510_baseline` and `Results/pc_stage2c_0510_hw`; no current
 workflow scans or falls back to 0x050C or earlier Results.
 
 FC03-only baseline workflow `14f7fb91-51e9-434b-bd9d-a6fe78ef3ecf` and strict
@@ -17,7 +17,7 @@ command, APPLY, SAVE, retry or reboot occurred in either capture.
 After the 600-second CH579/RS232 concurrency gate, final strict Preflight
 `a4661ca3-01e1-4463-a897-d6325430cdc2` passed 30/30 FC03 and all gates. Its
 summary SHA-256 is `AB3256C87571B9E01B6A9DDCAC0C811A982115D552F688306E617B551FD3FCBB`.
-The new 0x050F evidence roots use a Git `binary` attribute so captured bytes and
+The new 0x0510 evidence roots use a Git `binary` attribute so captured bytes and
 their embedded SHA-256 values survive clean checkout unchanged on every OS.
 Both recorded Preflights are audit evidence. Because the branch advanced while
 archiving them, neither may authorize a future SAVE; the physical persistence
@@ -28,7 +28,7 @@ register map it decodes; WeChat requires BLE Protocol 1, Schema 2, Map 0x0104
 and capability mask 0x000003FF. Firmware equality is deliberately reserved for
 the strict persistence product baseline. General WPF Flash SAVE remains closed.
 
-The 0x050F two-SAVE/two-physical-power-cycle qualification and final bound
+The 0x0510 two-SAVE/two-physical-power-cycle qualification and final bound
 600-second persistence stability are NOT RUN. Current status is **STAGE 5J
 SOFTWARE READY; HARDWARE CLOSURE PENDING**.
 

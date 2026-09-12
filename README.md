@@ -1,7 +1,7 @@
 # A33 Instrument Clients
 
 Client Stage 0 contracts and protocol libraries for the A33 weighing instrument.
-The current product baseline is STM32 Firmware `0x050F`, Register Map `0x0104`,
+The current product baseline is STM32 Firmware `0x0510`, Register Map `0x0104`,
 Schema `2`, BLE Protocol `1`: product code commit `b119703cee70b228aa240e7f3477c7dca9946841`
 and evidence commit `5236da68341e8feed0c6f6aedbc5ee52cea91f3b`.
 
@@ -97,7 +97,7 @@ evidence exists; RS232 full post-fix runtime validation and part of the Stage
 PC Stage 2B provides the safe configuration foundation and a protected fixed
 TCP brightness persistence workflow. Brightness RAM apply/cancel and a clean
 read-only hardware baseline are verified. General WPF Flash saving is not
-exposed. The independent 0x050F FC03-only baseline and strict Preflight pass;
-the 0x050F two-SAVE/two-physical-power-cycle qualification is not run.
+exposed. The independent 0x0510 FC03-only baseline and strict Preflight pass;
+the 0x0510 two-SAVE/two-physical-power-cycle qualification is not run.
 See `docs/CLIENT_PROJECT_ROADMAP.md` and
 `docs/PC_STAGE2B_CONFIGURATION_TRANSACTIONS.md` for the exact boundary.

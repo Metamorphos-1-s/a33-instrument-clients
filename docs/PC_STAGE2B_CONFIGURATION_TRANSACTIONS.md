@@ -1,15 +1,15 @@
 # PC Client Stage 2B Configuration Transactions
 
-## Current 0x050F product baseline
+## Current 0x0510 product baseline
 
-The centralized `Stage2BDeviceContract` now binds Firmware `0x050F`, Schema 2,
+The centralized `Stage2BDeviceContract` now binds Firmware `0x0510`, Schema 2,
 Map `0x0104`, product commit `b119703`, evidence commit `5236da6`, Release ELF
 SHA-256 `15C8269A...E8D`, baseline A/25 revision 25/25 and the dedicated
-`Results/pc_stage2b_050f_baseline` / `Results/pc_stage2b_050f_hw` roots.
+`Results/pc_stage2c_0510_baseline` / `Results/pc_stage2c_0510_hw` roots.
 
 The real FC03-only baseline capture and strict Preflight pass with zero write,
 retry, reconnect or error. The protected SAVE workflow retains exactly-once
-SAVE, no automatic retry and RESULT_UNCERTAIN lockout. The 0x050F two-SAVE and
+SAVE, no automatic retry and RESULT_UNCERTAIN lockout. The 0x0510 two-SAVE and
 two-physical-power-cycle run is NOT RUN; all 0x050C evidence below is historical
 and cannot authorize or complete a new workflow.
 

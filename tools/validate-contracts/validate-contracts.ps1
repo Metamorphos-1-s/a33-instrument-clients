@@ -4,12 +4,13 @@ $ble = Get-Content (Join-Path $root 'contracts/ble-v1/constants.json') -Raw | Co
 $goldenBle = Get-Content (Join-Path $root 'contracts/ble-v1/golden-frames.json') -Raw | ConvertFrom-Json
 $goldenModbus = Get-Content (Join-Path $root 'contracts/modbus-v0104/golden-frames.json') -Raw | ConvertFrom-Json
 $map = Get-Content (Join-Path $root 'contracts/modbus-v0104/register-map.json') -Raw | ConvertFrom-Json
-if ($ble.firmwareVersion -ne '0x050F' -or $ble.schemaVersion -ne 2 -or $ble.registerMap -ne '0x0104' -or
-    $ble.firmwareProductionCommit -ne 'b119703cee70b228aa240e7f3477c7dca9946841' -or
-    $ble.firmwareEvidenceCommit -ne '5236da68341e8feed0c6f6aedbc5ee52cea91f3b' -or
-    $ble.firmwareReleaseElfSha256 -ne '15C8269A80962E2CA7329A2623AB69F2286C2E3336373D0B658E2755E2B8DE8D') { throw 'BLE compatibility constants mismatch' }
+if ($ble.firmwareVersion -ne '0x0510' -or $ble.schemaVersion -ne 2 -or $ble.registerMap -ne '0x0104' -or
+    $ble.persistentFormatVersion -ne 3 -or $ble.slotSchemaVersion -ne 3 -or $ble.slotPayloadLength -ne 281 -or
+    $ble.firmwareProductionCommit -ne '785ce21e181fcf00aa371290facec6b7a14e484e' -or
+    $ble.firmwareEvidenceCommit -ne '8ef44f5643b83bec1a677b047f7535e5668ce229' -or
+    $ble.firmwareReleaseElfSha256 -ne '82E726F5B32A0DE36A5E686F62A937EC4FD9CBB488DB9733E83D2062673EF486') { throw 'BLE compatibility constants mismatch' }
 if ($ble.compatibility.monitoringFirmwarePolicy -ne 'protocol-contract' -or
-    $ble.compatibility.strictPersistenceFirmware -ne '0x050F' -or
+    $ble.compatibility.strictPersistenceFirmware -ne '0x0510' -or
     $ble.compatibility.requiredMonitoringCapabilities -ne '0x000003FF') { throw 'BLE compatibility policy mismatch' }
 if ($ble.version -ne 1 -or $ble.messageTypes.FAST_WEIGHT -ne 1 -or $ble.messageTypes.SLOW_STATUS -ne 2 -or $ble.messageTypes.CHECKWEIGH_STATUS -ne 3) { throw 'BLE message constants mismatch' }
 $telemetryDomain = @($ble.sequenceDomains.telemetry)
@@ -32,23 +33,24 @@ foreach($entry in $required.GetEnumerator()){
   }
 }
 $runtimeContract = Get-Content (Join-Path $root 'apps/wechat-mini/miniprogram/core/protocol/device-contract.ts') -Raw
-foreach ($requiredSource in @('productFirmwareVersion: 0x050f', 'schemaVersion: 2',
+foreach ($requiredSource in @('productFirmwareVersion: 0x0510', 'schemaVersion: 2',
+    'persistentFormatVersion: 3', 'slotSchemaVersion: 3', 'slotPayloadLength: 281',
     'registerMapVersion: 0x0104', 'requiredMonitoringCapabilities: 0x000003ff')) {
   if (-not $runtimeContract.Contains($requiredSource)) { throw "WeChat runtime contract mismatch: $requiredSource" }
 }
 $pcContract = Get-Content (Join-Path $root 'apps/pc/src/A33.Instrument.Core/Stage2BDeviceContract.cs') -Raw
-foreach ($requiredSource in @('FirmwareVersion = 0x050F',
-    'BaselineRoot = "Results/pc_stage2b_050f_baseline"',
-    'PersistenceEvidenceRoot = "Results/pc_stage2b_050f_hw"')) {
+foreach ($requiredSource in @('FirmwareVersion = 0x0510',
+    'BaselineRoot = "Results/pc_stage2c_0510_baseline"',
+    'PersistenceEvidenceRoot = "Results/pc_stage2c_0510_hw"')) {
   if (-not $pcContract.Contains($requiredSource)) { throw "PC strict contract mismatch: $requiredSource" }
 }
-$baselinePath = Join-Path $root 'Results/pc_stage2b_050f_baseline/persistence_baseline_manifest.json'
+$baselinePath = Join-Path $root 'Results/pc_stage2c_0510_baseline/persistence_baseline_manifest.json'
 $baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json
-if ($baseline.schema_version -ne 2 -or $baseline.baseline_id -ne 'a33-stage2b-fw050f-brightness3-20260911' -or
-    $baseline.firmware_version -ne 0x050F -or $baseline.register_map -ne 0x0104 -or $baseline.device_schema -ne 2 -or
+if ($baseline.schema_version -ne 2 -or $baseline.baseline_id -ne 'a33-stage2c-fw0510-brightness3-20260912' -or
+    $baseline.firmware_version -ne 0x0510 -or $baseline.register_map -ne 0x0104 -or $baseline.device_schema -ne 2 -or
     $baseline.register_count -ne 64 -or $baseline.active_registers.Count -ne 64 -or
-    $baseline.original_brightness -ne 3 -or $baseline.active_slot -ne 1 -or $baseline.active_sequence -ne 25 -or
-    $baseline.current_revision -ne 25 -or $baseline.saved_revision -ne 25 -or -not $baseline.proven_before_first_stage2b_write -or
+    $baseline.original_brightness -ne 3 -or $baseline.active_slot -ne 1 -or $baseline.active_sequence -ne 3 -or
+    $baseline.current_revision -ne 3 -or $baseline.saved_revision -ne 3 -or -not $baseline.proven_before_first_stage2b_write -or
     $baseline.stm32_production_commit -ne $ble.firmwareProductionCommit -or
     $baseline.stm32_evidence_commit -ne $ble.firmwareEvidenceCommit -or
     $baseline.stm32_release_elf_sha256 -ne $ble.firmwareReleaseElfSha256) {

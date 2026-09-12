@@ -7,6 +7,6 @@ and CRC-16/Modbus over sync through payload. Valid payload lengths are FAST 42,
 SLOW 59, CHECKWEIGH 8, request 6..128 and response 8..96. Device info must
 report protocol 1, schema 2, register map `0x0104` and all required monitoring
 capabilities (`0x000003FF`) before the connection can become READY. Firmware
-`0x050F` is the current product baseline, but ordinary monitoring accepts a
+`0x0510` is the current product baseline, but ordinary monitoring accepts a
 different firmware value when the actual protocol contract remains compatible;
-strict persistence requires exact `0x050F` identity and evidence bindings.
+strict persistence requires exact `0x0510` identity and evidence bindings.

@@ -2,8 +2,11 @@ import { DeviceInfo } from '../domain/device-model';
 
 export const BLE_DEVICE_CONTRACT = {
   protocolVersion: 1,
-  productFirmwareVersion: 0x050f,
+  productFirmwareVersion: 0x0510,
   schemaVersion: 2,
+  persistentFormatVersion: 3,
+  slotSchemaVersion: 3,
+  slotPayloadLength: 281,
   registerMapVersion: 0x0104,
   requiredMonitoringCapabilities: 0x000003ff,
 } as const;

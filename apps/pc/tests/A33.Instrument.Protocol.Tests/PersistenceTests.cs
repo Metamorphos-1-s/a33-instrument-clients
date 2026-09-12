@@ -596,7 +596,7 @@ public sealed class PersistenceTests
         var summary = new PreflightSummary(2, PreflightWorkflowId, ClientCommit, "1.0.0", Hash64,
             ConfigurationPersistenceService.FixedStm32Commit, Baseline().Manifest.BaselineId,
             Baseline().Manifest.ActiveArraySha256, Baseline().ManifestSha256, now, now, 0, 0, 1, 2,
-            "192.168.1.100:502", 1, new DeviceIdentity(0x050F, 2, 0x0104, 1), new(1, 1, 0, 1, 0), requests, errors,
+            "192.168.1.100:502", 1, new DeviceIdentity(0x0510, 2, 0x0104, 1), new(1, 1, 0, 1, 0), requests, errors,
             new Dictionary<string, bool> { ["all"] = true }, "PASS", [], new Dictionary<string, string>());
         var binding = new ValidatedPreflightBinding(PreflightWorkflowId, "summary", Hash64, summary, store,
             new MailboxSnapshot(0, 0, 0, 0, new ushort[12]), Active(3));
@@ -634,7 +634,7 @@ public sealed class PersistenceTests
 
         public static FakePersistenceDevice AfterReboot(FakePersistenceDevice source) => new(source.Active, source.Store with
         { StateMirror1Raw = 0, StateMirror2Raw = 0, StateMirror1 = ConfigStoreState.Idle, StateMirror2 = ConfigStoreState.Idle }, 0);
-        public Task<DeviceIdentity> ReadIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DeviceIdentity(0x050F, 2, 0x0104, 1));
+        public Task<DeviceIdentity> ReadIdentityAsync(CancellationToken cancellationToken = default) => Task.FromResult(new DeviceIdentity(0x0510, 2, 0x0104, 1));
         public Task<MailboxSnapshot> ReadMailboxAsync(CancellationToken cancellationToken = default) => Task.FromResult(new MailboxSnapshot(MailboxToken, 0, MailboxState, 0, new ushort[12]));
         public Task<ushort[]> ReadActiveConfigurationAsync(CancellationToken cancellationToken = default) {ActiveReadCalls++;if(ActiveReadErrorAfter==ActiveReadCalls)throw new IOException("stability read failure");return Task.FromResult(Active.ToArray());}
         public Task<ConfigStoreSnapshot> ReadConfigStoreAsync(CancellationToken cancellationToken = default)
@@ -702,7 +702,7 @@ public sealed class PersistenceTests
             }
             var values = new ushort[count];
             if (address == 0x0103) values[0] = 0;
-            else if (address == 14) { values[0] = Failure == "identity" ? (ushort)0x0103 : (ushort)0x0104; values[1] = 0x050F; }
+            else if (address == 14) { values[0] = Failure == "identity" ? (ushort)0x0103 : (ushort)0x0104; values[1] = 0x0510; }
             else if (address == 0x0020)
             {
                 sequenceReads++; values[0] = 0;

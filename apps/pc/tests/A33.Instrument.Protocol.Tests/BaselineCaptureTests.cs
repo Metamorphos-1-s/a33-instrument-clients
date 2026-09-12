@@ -8,7 +8,7 @@ namespace A33.Instrument.Protocol.Tests;
 public sealed class BaselineCaptureTests
 {
     [Fact]
-    public async Task ValidFirmware050fBrightness3CapturePasses()
+    public async Task ValidFirmware0510Brightness3CapturePasses()
     {
         using var temp = new CaptureTempDirectory();
         var fake = new CaptureSession();
@@ -116,7 +116,7 @@ public sealed class BaselineCaptureTests
             var started = DateTimeOffset.UtcNow;
             ushort[] values;
             if (address == 0x0103 && count == 1) values = [0];
-            else if (address == 14 && count == 2) values = [0x0104, Failure == "firmware" ? (ushort)0x050C : (ushort)0x050F];
+            else if (address == 14 && count == 2) values = [0x0104, Failure == "firmware" ? (ushort)0x050C : (ushort)0x0510];
             else if (address is >= 0x0100 and <= 0x0130)
             {
                 values = Active.Skip(address - 0x0100).Take(count).ToArray();
@@ -127,10 +127,10 @@ public sealed class BaselineCaptureTests
             else if (address == 0x004C) { values = new ushort[12]; if (Failure == "mailbox") values[2] = 1; }
             else if (address == 0x0030)
             {
-                values = [0,0,Failure == "dirty" ? (ushort)1 : (ushort)0,0,25,0,Failure == "revision" ? (ushort)24 : (ushort)25];
+                values = [0,0,Failure == "dirty" ? (ushort)1 : (ushort)0,0,3,0,Failure == "revision" ? (ushort)2 : (ushort)3];
             }
             else if (address == 0x01C0)
-                values = [2, Failure == "slot" ? (ushort)2 : (ushort)1,0,Failure == "sequence" ? (ushort)24 : (ushort)25,0];
+                values = [3, Failure == "slot" ? (ushort)2 : (ushort)1,0,Failure == "sequence" ? (ushort)2 : (ushort)3,0];
             else throw new InvalidOperationException("Unexpected read plan.");
             var success = Failure != "fc03" || trace.Count != 2;
             trace.Add(new(trace.Count + 1, started, started.AddMilliseconds(1), 1, 3, address, count, "0103", success ? "0103" : "", success ? values.Length : 0, success, success ? null : "IOException", null, purpose, null));

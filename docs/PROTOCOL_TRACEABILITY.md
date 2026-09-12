@@ -9,7 +9,7 @@
 | Modbus map 0x0104 | `Protocol/modbus/modbus_register_map.h`, `Tools/stage5b_hw/register_map.py` | same | JSON address-overlap validation |
 | FC03/06/16 | `Protocol/modbus/*`, `Tools/stage5b_hw/modbus_frame.py` | same | C# codec tests |
 
-The Firmware `0x050F` hardware/evidence commit is
+The Firmware `0x0510` hardware/evidence commit is
 `5236da68341e8feed0c6f6aedbc5ee52cea91f3b`; its Release ELF SHA-256 is
 `15C8269A80962E2CA7329A2623AB69F2286C2E3336373D0B658E2755E2B8DE8D`.
 Strict PC persistence binds all three values. Ordinary monitoring does not use
